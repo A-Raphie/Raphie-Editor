@@ -68,6 +68,8 @@ export interface Config {
   cleanupAfterDays: number;
   parallelSegments: number;
   previewResolution: number;
+  srtChunkSize: number;
+  srtChunkDelayMs: number;
 }
 
 export function createConfig(overrides: Partial<Config> = {}): Config {
@@ -124,6 +126,8 @@ export function createConfig(overrides: Partial<Config> = {}): Config {
     cleanupAfterDays: overrides.cleanupAfterDays ?? 0,
     parallelSegments: overrides.parallelSegments ?? 1,
     previewResolution: overrides.previewResolution ?? 1080,
+    srtChunkSize: overrides.srtChunkSize ?? 25,
+    srtChunkDelayMs: overrides.srtChunkDelayMs ?? 0,
     ...overrides,
   };
 }

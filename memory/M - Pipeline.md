@@ -12,7 +12,7 @@ Progress percentages are mapped via `STEP_RANGES` in orchestrator.
 
 ---
 
-## Orchestrator (`src/pipeline/orchestrator.ts`, 601 lines)
+## Orchestrator (`src/pipeline/orchestrator.ts`, 708 lines)
 
 ### Pipeline Class
 - Constructor takes `Config`, creates `Logger`
@@ -20,10 +20,12 @@ Progress percentages are mapped via `STEP_RANGES` in orchestrator.
 - Scene plan saved to `scene_plan.json`
 
 ### Entry Points
-1. **`run(scriptPath, voPath, musicPath?, scenePlanOverride?)`** — Full pipeline
+1. **`run(scriptPath, voPath, musicPath?, scenePlanOverride?, srtPath?)`** — Full pipeline (note: RUN_PIPELINE doesn't pass srtPath; only RENDER_VIDEO passes it)
 2. **`resume()`** — Resume from saved state (re-sources missing assets)
 3. **`runWithScenePlan(scriptPath, voPath, musicPath, plan)`** — Skip planning, use existing plan
 4. **`rerunWithExistingPlan(scriptPath, voPath, musicPath, planPath)`** — Re-source assets with existing plan
+5. **`renderOnly(outputDir)`** — Read pipeline state from disk, verify assets, then render with segment combining + ffmpeg audio muxing
+6. **`renderNew(scenePlan, assets, config, outputDir, voPath, musicPath)`** — Render with a new/modified plan without re-running the full pipeline
 
 ### Step Flow
 1. **init**: Parse script/SRT, get audio duration, validate inputs
@@ -68,6 +70,12 @@ PipelineState {
 ### Key: Execution Order
 **`enforceBodyDurations` runs FIRST, `enforceBeatDistribution` runs LAST**
 This ensures duration enforcement doesn't destroy the distribution, and the final distribution is the enforced one.
+
+### SRT Chunk Planning
+- `SRT_CHUNK_SIZE=25` (reduced from 40 for 2+ hour video reliability — fewer tokens = fewer 502 errors)
+- `SRT_CHUNK_CONCURRENCY=2` (reduced from 3 — reduces 502/provider errors on OpenRouter)
+- `max_tokens: 4096` on scene planner calls — prevents output truncation
+- `validateScenePlan()` validates `startTime` and `duration` fields
 
 ### Beat Distribution Algorithm
 - Targets **overall** ratio (all beats including hook)
@@ -131,24 +139,55 @@ interface QualityResult {
 
 ---
 
-## Renderer (`src/pipeline/renderer.ts`, 360 lines)
+## Renderer (`src/pipeline/renderer.ts`, ~470 lines)
 
-### `renderVideoSegments(scenePlan, assets, config, logger, onProgress, state)`
+### `renderVideoSegments(scenePlan, assets, config, logger, voPath?, musicPath?, existingState?, callbacks?)`
 - Bundles Remotion entry point
 - Selects composition
-- Renders in segments (configurable `segmentLength`, default 900 frames = 30s at 30fps)
-- Supports parallel segment rendering (`parallelSegments` 1-3)
-- Combines segments with Remotion's `combineChunks()`
+- Renders in segments (uses `config.segmentLength` from settings, default 900 frames = 30s at 30fps)
+- Combines segments with Remotion's `combineChunks(audioFiles: [])` — no audio in combine step
+- All audio (VO, music, overlay) muxed via ffmpeg after video combine
+
+### Muted Rendering Architecture
+- `renderMedia({ muted: true })` — Remotion renders video-only segments
+- Audio must be muxed via ffmpeg after segment combine
+- This is because Remotion's audio handling was unreliable for complex mixes
 
 ### Segment Rendering
-- Each segment is rendered independently to a temp directory
-- State tracks completed segments for resume capability
+- Each segment is rendered independently to a temp directory (`segmentDir`)
+- State (`RenderSegmentState`) tracks completed segments for resume capability
 - Continues from last completed segment on resume
+- Segment length reads from `config.segmentLength ?? 900` (no longer hardcoded)
+
+### Segment Render Callbacks
+```ts
+interface SegmentRenderCallbacks {
+  onSegmentProgress?: (segIndex, totalSegments, frameProgress) => void;
+  onSegmentComplete?: (segIndex) => void;
+  onSegmentsInit?: (info: { totalSegments, segmentLength, segmentDir }) => void;
+}
+```
+
+### Overlay Audio Mixing
+- Overlay beats filtered by `overlay?.type === "subscribe_cta"`
+- Overlay audio extracted from VFX file (`config.vfxPath`) via `ffmpeg -vn -acodec aac`
+- For each overlay beat: audio delayed with `adelay` filter to match beat's `showAt` time
+- Mixed into VO track with `amix(inputs=2, normalize=0)`
+- Multiple overlays supported via chained `adelay`+`amix`
+- ffmpeg fallback on mux failure: simple `-map` approach without overlay mixing
+
+### Audio Muxing Pipeline
+1. Combine video segments → temp video (no audio)
+2. Build ffmpeg command: `-i tempVideo [-i voPath] [-i musicPath]`
+3. Extract overlay audio from VFX file if overlay beats exist
+4. If overlay audio: use `amix` filter to mix overlay into VO
+5. If mux fails: fallback to simple `-map` approach (video + VO + music, no overlay)
+6. Clean up temp files and segment directory
 
 ### Output
 - Final video: H.265 or H.264 (configurable)
 - Resolution: 480p, 720p, or 1080p (user-selected per render)
-- Audio: voiceover + music at configured volume
+- Audio: voiceover + music + overlay audio (single stream, mixed via ffmpeg)
 
 ### Remotion Integration
 - Entry: `src/remotion/index.ts`
@@ -168,8 +207,8 @@ interface QualityResult {
 
 ### `src/utils/llm.ts`
 - `createOpenRouterClient()` — OpenRouter API client
-- `chatCompletion()` — Text-only LLM calls
-- `chatWithImages()` — Vision LLM calls (for quality checker)
+- `chatCompletion()` — Text-only LLM calls with `max_tokens: 4096`, defensive `choices` check with raw response logging
+- `chatWithImages()` — Vision LLM calls with `response_format: { type: "json_object" }`, defensive `choices` check
 
 ### `src/utils/srtParser.ts`
 - `parseSrt(srtContent)` → `SrtSegment[]`

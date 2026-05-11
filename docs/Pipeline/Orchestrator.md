@@ -37,6 +37,6 @@ Progress is mapped to percentage ranges:
 - Failed beats get `title_card` fallback via `resolveFallbacks()`
 
 ## Dependencies
-- All pipeline steps, [[LLM Client]], [[yt-dlp Wrapper]], [[Logger]], [[File Manager]], [[Data Model]]
+- All pipeline steps, [[LLM Client]], [[Asset Sourcer]], [[Logger]], [[File Utils]], [[Data Model]]
 
 See also: [[Pipeline Flow]], [[Data Model]], [[Configuration]]

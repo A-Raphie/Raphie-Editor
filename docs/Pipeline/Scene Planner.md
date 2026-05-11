@@ -25,7 +25,7 @@ Uses an LLM to convert script text + VO duration into a [[Data Model|ScenePlan]]
 - Clips always slowed (0.5-0.75x speed)
 - Images always animated (Ken Burns)
 - Transitions: 10 types, never same twice in a row
-- Search queries must be specific and YouTube-searchable
+- Search queries must be specific and descriptive for stock API search
 - Hook (first ~60s): 2-3s clips with fast cuts
 - Body clips: 6s each
 

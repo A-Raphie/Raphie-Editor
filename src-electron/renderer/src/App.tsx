@@ -172,13 +172,16 @@ export default function App() {
 			musicPath: musicPath ?? undefined,
 			srtPath: srtPath ?? undefined,
 			scenePlan: scenePlan ?? undefined,
+			beatCandidates: Object.keys(beatCandidates).length > 0 ? beatCandidates : undefined,
+			selectedCandidateIndex: Object.keys(selectedCandidateIndex).length > 0 ? selectedCandidateIndex : undefined,
+			assets: Object.keys(assets).length > 0 ? assets : undefined,
 			status,
 			...extra
 		};
 		const saved = await window.api.saveProject(data);
 		if (!currentProjectId) setCurrentProjectId(saved.id);
 		refreshProjects();
-	}, [scriptPath, srtPath, voPath, musicPath, scenePlan, currentProjectId, refreshProjects]);
+	}, [scriptPath, srtPath, voPath, musicPath, scenePlan, currentProjectId, beatCandidates, selectedCandidateIndex, assets, refreshProjects]);
 
 	useEffect(() => {
 		const unsubProgress = window.api.onProgress((p: PipelineProgress) => {
@@ -245,6 +248,15 @@ export default function App() {
 		window.api.onBeatStatus(unsubBeatStatus);
 		return () => { unsubProgress(); };
 	}, []);
+
+	useEffect(() => {
+		if (!currentProjectId || !scenePlan) return;
+		if (Object.keys(assets).length === 0 && Object.keys(beatCandidates).length === 0) return;
+		const timer = setTimeout(() => {
+			autoSaveProjectRef.current("editing");
+		}, 1000);
+		return () => clearTimeout(timer);
+	}, [assets, beatCandidates, currentProjectId, scenePlan]);
 
 	const openSettings = useCallback(() => setShowSettings(true), []);
 
@@ -434,7 +446,7 @@ export default function App() {
 			await window.api.cleanAssets(pid);
 			const stateInfo = await window.api.getPipelineState(pid, scriptPath!, voPath!, srtPath ?? undefined);
 			if (currentProjectIdRef.current !== pid) return;
-			setAssets(stateInfo?.assets ?? {});
+		setAssets(stateInfo?.assets ?? {});
 			setThumbnails({});
 			setAssetValidation({});
 		} catch (err: any) {
@@ -610,7 +622,7 @@ export default function App() {
 		let stateInfo = null;
 		if (project.id) try { stateInfo = await window.api.getPipelineState(project.id, project.scriptPath ?? "", project.voPath, project.srtPath); } catch {}
 		setPipelineStateInfo(stateInfo);
-		setAssets(stateInfo?.assets ?? {});
+		setAssets(stateInfo?.assets ?? project.assets ?? {});
 		if (project.status === "complete" && project.outputPath) setView("complete");
 		else if (project.scenePlan) setView("editor");
 		else setView("input");
@@ -956,8 +968,8 @@ export default function App() {
 										setBeatStatuses({});
 										setAssetValidation({});
 										setDownloadingBeats([]);
-										setBeatCandidates({});
-										setSelectedCandidateIndex({});
+		setBeatCandidates(project.beatCandidates ?? {});
+		setSelectedCandidateIndex(project.selectedCandidateIndex ?? {});
 										setBeatTextSegments({});
 										setSelectedBeatId(null);
 										setReDownloadingBeat(null);

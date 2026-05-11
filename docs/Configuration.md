@@ -6,22 +6,13 @@ tags: [pipeline, config]
 
 Factory in `src/config.ts`. Creates `Config` object with sensible defaults.
 
-## Model Tiers
+## Model Selection
 
-| Tier | Scene Planner | Quality Checker | Cost/video |
-|------|--------------|-----------------|------------|
-| **default** | Claude Sonnet 4 | Gemini 2.5 Flash Lite | ~$0.19 |
-| **budget** | Claude Haiku 4 | Gemini 2.5 Flash Lite | ~$0.05 |
+6 planner models and 4 checker models available in dropdown. Costs displayed as "/hr" using benchmarks (75 planner chunks/hr, 3,000 checker calls/hr).
+
+Planner models include `google/gemma-3-4b-it` (~$0.02/hr) as the cheapest option.
 
 UI overrides these via [[Settings]] component.
-
-## Available Quality Checker Models
-
-| Model | Vision? | Cost (in/out per 1M) |
-|-------|---------|---------------------|
-| Gemini 2.5 Flash Lite | Yes | $0.10 / $0.40 |
-| GPT-4o Mini | Yes | $0.15 / $0.60 |
-| Gemini 2.5 Flash | Yes | $0.60 / $2.50 |
 
 ## Config Fields
 
@@ -29,15 +20,18 @@ UI overrides these via [[Settings]] component.
 |-------|---------|-------|
 | `fps` | 30 | Fixed for Remotion |
 | `concurrency` | 4 | Parallel asset downloads |
-| `downloadResolution` | 1080 | yt-dlp resolution |
+| `downloadResolution` | 2160 | Pexels/Pixabay download resolution |
 | `downloadTimeout` | 90000ms | Per-download timeout |
+| `segmentLength` | 900 frames | Segment duration for rendering (~30s at 30fps), configurable in settings |
+| `parallelSegments` | 1 | Parallel render segments (range 1-3) |
+| `previewResolution` | 1080 | Preview render resolution |
 | `outputDir` | `~/AI Video Editor/output` | Rendered videos |
 | `clipsDir` | `~/AI Video Editor/output/clips` | Downloaded clips |
-| `imagesDir` | `~/AI Video Editor/output/images` | Extracted images |
+| `imagesDir` | `~/AI Video Editor/output/images` | Downloaded images |
 | `remotionEntryPath` | `src/remotion/index.ts` | Remotion entry |
 | `remotionPublicDir` | `assets/` | Static file serving |
 | `ffmpegPath` | Bundled or homebrew | ffmpeg binary |
-| `ytDlpPath` | Bundled or homebrew | yt-dlp binary |
+| `vfxPath` | `assets/vfx/subscribe.mp4` | Subscribe overlay video |
 
 ## Settings Persistence
 

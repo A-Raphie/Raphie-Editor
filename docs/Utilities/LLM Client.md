@@ -10,13 +10,17 @@ Unified client for OpenRouter API calls. Handles JSON parsing, retries, and imag
 
 ## Functions
 
-### `chat(messages, options?)`
+### `chatCompletion(messages, options?)`
 
 Text-only chat completion. Returns parsed JSON object.
+- Sends `max_tokens: 4096` by default to prevent truncation
+- Defensive `choices` check with raw response logging
 
 ### `chatWithImages(messages, images, options?)`
 
-Chat with image attachments (for quality checker). No `response_format` — Gemini doesn't support it with images.
+Chat with image attachments (for quality checker).
+- Sends `response_format: { type: "json_object" }`
+- Defensive `choices` check with raw response logging
 
 ### `sanitizeJsonResponse(text)`
 
@@ -28,21 +32,8 @@ Extracts JSON from LLM response text:
 
 ## Retry Logic
 
-- Configurable `maxRetries` (default 3)
-- Exponential backoff: 1s, 2s, 4s
+- Configurable `maxRetries` (default 5)
+- Exponential backoff
 - Retries on rate limits (429), server errors (5xx), parse failures
-- Accept on 400 provider errors (quality check)
-
-## Options
-
-```typescript
-{
-  model: string
-  temperature?: number
-  maxTokens?: number
-  maxRetries?: number
-  responseFormat?: { type: "json_object" }
-}
-```
 
 See also: [[Scene Planner]], [[Quality Checker]], [[Configuration]]

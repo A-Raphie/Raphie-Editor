@@ -19,9 +19,8 @@
 - **Impact**: User must re-search candidates after reopening a project
 
 ### No git history
-- **Problem**: Project was accidentally deleted in session 10, no git repo exists
-- **Mitigation**: `memory/` directory serves as documentation; working copy at `/Applications/Raphie's Editor copy.app` as fallback
-- **Recommendation**: Initialize git repo
+- **Problem**: Project was accidentally deleted in session 10, no git repo existed
+- **Status**: FIXED in session 16 — git repo initialized, initial commit `f14b5f5`
 
 ---
 
@@ -67,9 +66,26 @@
 - **Fix**: Rewrote with flex layout and scrollable log panel
 - **File**: `src-electron/renderer/src/components/PlanningView.tsx`
 
+### Hardcoded segment length (Session 16)
+- **Bug**: `renderer.ts` used hardcoded `SEGMENT_LENGTH=900` instead of `config.segmentLength` from settings
+- **Fix**: Removed constant, replaced all uses with `config.segmentLength ?? 900`
+- **File**: `src/pipeline/renderer.ts`
+
 ---
 
 ## Session History
+
+### Session 16
+- Replaced hardcoded SEGMENT_LENGTH with config.segmentLength from settings
+- Initialized git repo, initial commit with full project baseline
+
+### Session 15
+- Added quality check toggle for Preview, updated model pricing to /hr format
+- Added google/gemma-3-4b-it planner model
+
+### Session 14
+- Added renderOnly()/renderNew() methods, fixed NaN crash, overlay audio amix fix
+- Switched renderer to combineChunks(audioFiles:[]) + ffmpeg muxing
 
 ### Session 10 (earliest tracked)
 - Fixed memory warning, double `?t=`, PlanningView layout, regenerating overlay scroll
@@ -87,7 +103,7 @@
 - Build succeeded, verified component names match working copy
 - Deployed to `/Applications/Raphie's Editor.app`
 
-### Session 13 (current)
+### Session 13
 - Created `memory/` directory with documentation files
 - Created `AGENTS.md` with reading order for new sessions
 - Completed: Architecture, File Map, Types, State, Component Tree, Pipeline memory files

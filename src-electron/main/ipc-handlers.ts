@@ -206,6 +206,8 @@ function buildConfigOverrides(settings: AppSettings, projectId?: string, args?: 
     cleanupAfterDays: settings.cleanupAfterDays ?? 0,
     parallelSegments: settings.parallelSegments ?? 1,
     previewResolution: previewRes,
+    srtChunkSize: settings.srtChunkSize ?? 25,
+    srtChunkDelayMs: settings.srtChunkDelayMs ?? 0,
   };
 }
 

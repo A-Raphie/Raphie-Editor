@@ -227,9 +227,21 @@ export default function Settings({ settings, onSave, onClose }: SettingsProps) {
 									<div className="space-y-4">
 										<div className="grid grid-cols-2 gap-4">
 											<div>
-												<label className={labelCls}>Music Volume</label>
-												<p className="text-[10px] text-zinc-600 mb-1">Background music loudness (0-100)</p>
-												<input type="number" min={0} max={100} value={form.musicVolume ?? 15} onChange={(e) => setForm({ ...form, musicVolume: parseInt(e.target.value) || 15 })} className={inputCls} />
+												<label className={labelCls}>Parallel Segments</label>
+												<p className="text-[10px] text-zinc-600 mb-1">1-3. Higher values render faster but use more memory. Recommended: 1</p>
+												<input type="number" min={1} max={3} value={form.parallelSegments ?? 1} onChange={(e) => setForm({ ...form, parallelSegments: Math.min(3, Math.max(1, parseInt(e.target.value) || 1)) })} className={inputCls} />
+											</div>
+											<div>
+												<label className={labelCls}>SRT Chunk Size</label>
+												<p className="text-[10px] text-zinc-600 mb-1">Segments per LLM chunk. 25 default, 40 = fewer requests, 15 = more granular</p>
+												<input type="number" min={5} max={80} value={form.srtChunkSize ?? 25} onChange={(e) => setForm({ ...form, srtChunkSize: parseInt(e.target.value) || 25 })} className={inputCls} />
+											</div>
+										</div>
+										<div className="grid grid-cols-2 gap-4">
+											<div>
+												<label className={labelCls}>Chunk Delay (ms)</label>
+												<p className="text-[10px] text-zinc-600 mb-1">Delay between batch requests. 0 = no delay, 2000 = 2s pause between batches</p>
+												<input type="number" min={0} max={30000} step={500} value={form.srtChunkDelayMs ?? 0} onChange={(e) => setForm({ ...form, srtChunkDelayMs: parseInt(e.target.value) || 0 })} className={inputCls} />
 											</div>
 											<div>
 												<label className={labelCls}>Quality Score Threshold</label>

@@ -58,6 +58,9 @@ export function saveProject(data: Partial<SavedProject> & { id?: string }): Save
     status: data.status || "planning",
     outputPath: data.outputPath,
     modelTier: data.modelTier,
+    beatCandidates: data.beatCandidates,
+    selectedCandidateIndex: data.selectedCandidateIndex,
+    assets: data.assets,
   };
   projects.push(project);
   writeProjects(projects);

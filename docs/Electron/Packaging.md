@@ -21,7 +21,7 @@ npx electron-builder --mac --dir   # Package to dist/mac-arm64/
 |---------|-------|
 | `asar` | true — all code in single archive |
 | `target` | DMG for arm64 |
-| `extraResources` | `resources/mac/`, `resources/mac-arm64/` (ffmpeg, yt-dlp, remotion-bin) |
+| `extraResources` | `resources/mac/`, `resources/mac-arm64/` (ffmpeg, remotion-bin, vfx) |
 | `identity` | null — unsigned (development) |
 
 ## asarUnpack
@@ -39,14 +39,15 @@ These packages are extracted from the asar to `app.asar.unpacked/`:
 resources/mac-arm64/
 ├── ffmpeg          # ~110MB ffmpeg binary
 ├── ffprobe         # ~30MB ffprobe binary
-├── yt-dlp          # ~15MB yt-dlp binary
-├── yt_dlp_bundle/  # yt-dlp Python bundle
+├── yt_dlp_bundle/  # yt-dlp Python bundle (legacy, not actively used)
 └── remotion-bin/   # Remotion compositor binaries (~16MB)
     ├── remotion        # Rust compositor
     ├── ffmpeg          # Remotion's ffmpeg
     ├── ffprobe         # Remotion's ffprobe
     └── *.dylib         # Shared libraries
 ```
+
+Note: `assets/vfx/` is bundled to `vfx/` in Resources for the subscribe overlay.
 
 ## Rebuild Cycle
 

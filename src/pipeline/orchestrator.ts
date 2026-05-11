@@ -445,6 +445,7 @@ export class Pipeline {
     let segmentLength = existingState?.segmentLength ?? this.config.segmentLength ?? 900;
     let segmentDir = existingState?.segmentDir ?? "";
 
+    const parallelSegments = this.config.parallelSegments ?? 1;
     const { outputPath } = await renderVideoSegments(
       scenePlan,
       assets,
@@ -475,6 +476,7 @@ export class Pipeline {
           };
           await this.saveState();
         },
+        parallelSegments,
       }
     );
 

@@ -5,20 +5,20 @@
 |------|---------|
 | `config.ts` | Config type + createConfig factory, parseCommaList utility |
 | `index.ts` | Pipeline entry point |
-| `pipeline/scenePlanner.ts` | Scene plan generation: planScenes, planScenesFromSrt, planScenesFromSrtChunked, enforceBodyDurations, enforceBeatDistribution, validateScenePlan, buildSystemPrompt, buildSrtSystemPrompt |
-| `pipeline/orchestrator.ts` | Pipeline orchestration: run pipeline, source assets, render |
-| `pipeline/assetSourcer.ts` | Pexels/Pixabay API calls, asset download |
-| `pipeline/qualityChecker.ts` | Quality check via LLM |
+| `pipeline/scenePlanner.ts` | Scene plan generation: planScenes, planScenesFromSrt, planScenesFromSrtChunked, enforceBodyDurations, enforceBeatDistribution, validateScenePlan, buildSystemPrompt, buildSrtSystemPrompt (SRT_CHUNK_SIZE=25, SRT_CHUNK_CONCURRENCY=2) |
+| `pipeline/orchestrator.ts` | Pipeline orchestration: run, resume, renderOnly, renderNew, source assets, render |
+| `pipeline/assetSourcer.ts` | Pexels/Pixabay API calls, asset download, sourceBeatsParallel |
+| `pipeline/qualityChecker.ts` | Quality check via LLM vision model |
 | `pipeline/dedupChecker.ts` | Duplicate asset detection + re-download |
-| `pipeline/renderer.ts` | Remotion rendering |
+| `pipeline/renderer.ts` | Remotion segment rendering + ffmpeg audio muxing (amix for overlay audio) |
 | `types/scenePlan.ts` | ScenePlan, Beat, BeatOverlay types |
-| `utils/llm.ts` | OpenRouter client, chatCompletion |
+| `utils/llm.ts` | OpenRouter client, chatCompletion (max_tokens: 4096), chatWithImages (response_format: json_object) |
 | `utils/logger.ts` | Logger class |
 | `utils/srtParser.ts` | SRT parsing, SrtSegment type |
 | `utils/stockApi.ts` | Stock API helpers |
 | `utils/fileParser.ts` | Script file parsing |
 | `utils/fileManager.ts` | File management utilities |
-| `remotion/` | Remotion compositions (Documentary, VideoClip, ImageSlide, etc.) |
+| `remotion/` | Remotion compositions (Documentary, VideoClip, ImageSlide, GraphicOverlay, etc.) |
 
 ## Electron Main (`src-electron/main/`)
 | File | Purpose |
@@ -41,10 +41,12 @@
 | `components/CandidatePicker.tsx` | Candidate thumbnail grid with video preview |
 | `components/PlanningView.tsx` | Loading/progress view during scene plan generation |
 | `components/ProjectsView.tsx` | Project list with rename/delete |
-| `components/Settings.tsx` | Tabbed settings (API Keys, General, Advanced) |
-| `components/ModelSelector.tsx` | Model dropdowns |
+| `components/Settings.tsx` | Tabbed settings (API Keys, General, Advanced) — includes Quality Check on Preview toggle, /hr model pricing |
+| `components/ModelSelector.tsx` | Model dropdowns — 6 planner models, 4 checker models, /hr cost labels |
 | `components/ErrorModal.tsx` | Error overlay |
 | `components/ConfirmModal.tsx` | Confirm dialog |
+| `components/ProgressBar.tsx` | Standalone progress bar (batch queue) |
+| `components/LogViewer.tsx` | Standalone log viewer |
 | `index.css` | Tailwind styles |
 
 ## Shared (`src-electron/shared/`)

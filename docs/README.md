@@ -4,26 +4,26 @@ tags: [home]
 
 # AI Video Editor
 
-Autonomous documentary video pipeline. Takes a script + voiceover audio, uses LLMs to plan visual beats, sources video/image assets via yt-dlp, quality-checks them via vision LLMs, and renders the final 1080p video using Remotion.
+Autonomous documentary video pipeline. Takes a script/SRT + voiceover audio, uses LLMs to plan visual beats, sources video/image assets via Pexels/Pixabay APIs, quality-checks them via vision LLMs, and renders the final 1080p video using Remotion.
 
-Available as both a **CLI tool** and an **Electron Mac desktop app**.
+Available as a **macOS desktop app** (Electron).
 
 ## Architecture
 
 ```mermaid
 graph TD
-    User[User Input] --> |script + VO| CLI[CLI / Electron App]
-    CLI --> SP[Scene Planner]
+    User[User Input] --> |script/SRT + VO| APP[Electron App]
+    APP --> SP[Scene Planner]
     SP --> |ScenePlan| AS[Asset Sourcer]
     AS --> |clips + images| QC[Quality Checker]
     QC --> |accepted assets| REN[Remotion Renderer]
     REN --> MP4[Final .mp4]
     
     SP --> |LLM call| LLM[OpenRouter API]
-    AS --> |yt-dlp| YT[YouTube]
-    AS --> |LLM vision| LLM
+    AS --> |search + download| API[Pexels / Pixabay]
     QC --> |LLM vision| LLM
     REN --> |Chrome headless| REM[Remotion/webpack]
+    REN --> |ffmpeg mux| FS[Filesystem]
 ```
 
 ## Explore
@@ -38,9 +38,9 @@ graph TD
 ### Pipeline Steps
 - [[Orchestrator]] - Master pipeline controller
 - [[Scene Planner]] - LLM scene plan generation
-- [[Asset Sourcer]] - yt-dlp download + LLM window selection
+- [[Asset Sourcer]] - Pexels/Pixabay API search + download
 - [[Quality Checker]] - Vision LLM asset validation
-- [[Renderer]] - Remotion bundle + render
+- [[Renderer]] - Remotion segment rendering + ffmpeg audio muxing
 
 ### Electron App
 - [[Main Process]] - App lifecycle, patches
@@ -54,12 +54,12 @@ graph TD
 - [[App Component]] - Root component, state, error handling
 - [[Sidebar]] - Navigation
 - [[DropZone]] - File input
-- [[Model Selector]] - Model dropdowns
-- [[Beat Timeline]] - Beat visualization
-- [[Beat Editor]] - Beat property editing
-- [[Settings]] - Settings modal
+- [[Model Selector]] - Model dropdowns with /hr cost labels
+- [[Beat Timeline]] - Beat visualization with thumbnails
+- [[Beat Editor]] - Beat property editing + candidate picker
+- [[Settings]] - Settings modal (API keys, general, advanced)
 - [[Log Viewer]] - Real-time logs
-- [[Planning View]] - Scene plan preview
+- [[Planning View]] - Scene plan generation progress
 - [[Projects View]] - Project management
 - [[Error Modal]] - Error display
 - [[Progress Bar]] - Render progress
@@ -76,7 +76,7 @@ graph TD
 
 ### Utilities
 - [[LLM Client]] - OpenRouter + retry logic
-- [[yt-dlp Wrapper]] - Download, trim, extract
+- [[FFmpeg Utils]] - Audio muxing, overlay mixing
 - [[File Parser]] - Multi-format script parsing
-- [[File Manager]] - FS utilities
+- [[File Utils]] - FS utilities
 - [[Logger]] - Timestamped logging

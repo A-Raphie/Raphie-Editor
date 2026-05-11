@@ -24,11 +24,11 @@ graph TD
 
 | Step | Input | Output | Tool |
 |------|-------|--------|------|
-| **init** | scriptPath, voPath | Preflight checks | fs, yt-dlp, ffmpeg |
-| **scene_planning** | Script text + VO duration | `ScenePlan` JSON | LLM via [[LLM Client]] |
-| **asset_sourcing** | Beat search queries | `AssetMapping` {beatId: filePath} | [[yt-dlp Wrapper]] + LLM vision |
+| **init** | scriptPath/SRT, voPath | Preflight checks | fs, ffmpeg |
+| **scene_planning** | Script/SRT text + VO duration | `ScenePlan` JSON | LLM via [[LLM Client]] |
+| **asset_sourcing** | Beat search queries | `AssetMapping` {beatId: filePath} | [[Asset Sourcer]] (Pexels/Pixabay API) |
 | **quality_check** | Downloaded assets | accepted/rejected lists | LLM vision ([[Quality Checker]]) |
-| **rendering** | ScenePlan + assets + VO | Final .mp4 | [[Renderer]] (Remotion) |
+| **rendering** | ScenePlan + assets + VO | Final .mp4 | [[Renderer]] (Remotion segments + ffmpeg mux) |
 
 ## State Persistence
 
@@ -37,6 +37,7 @@ After each step completes, state is saved to `output/pipeline_state.json`:
 - `assets` — downloaded file paths
 - `scenePlan` — path to saved scene plan JSON
 - `scriptPath`, `voPath`, `musicPath` — original input paths
+- `renderSegments` — completed segment indices for render resume
 
 On resume ([[Orchestrator]]), completed steps are skipped.
 

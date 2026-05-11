@@ -14,7 +14,11 @@ All state lives in App.tsx (no Redux/Zustand). 986 lines total.
 | `settings` | `AppSettings \| null` | `null` | App-wide settings, loaded on mount |
 | `view` | `string` | `"input"` | Current view: input, planning, editor, rendering, complete, projects, queue |
 | `currentProjectId` | `string \| null` | `null` | Active project ID |
-| `selectedResolution` | `number` | `1080` | Render resolution, resets to 1080 per session |
+| `selectedResolution` | `number` | `1080` | Render resolution, resets to 1080 per session (not persisted) |
+
+### Preview Enable Condition
+- Preview button enabled when `(scriptPath OR srtPath) AND voPath` are set
+- Voiceover (`voPath`) is required; background music is optional
 
 ### Input Files
 | Variable | Type | Default | Purpose |
@@ -136,8 +140,8 @@ All listeners filter by `activePipelineProjectIdRef` to avoid cross-project poll
 | `handleSaveSearch(beatId, query)` | Save search query to beat, persist plan |
 | `handleToggleOverlay(beatId)` | Toggle subscribe_cta overlay on beat |
 | `handleCheckAllAssets()` | Validate all assets exist and are healthy |
-| `handlePreviewAll()` | Search candidates for all beats in parallel |
-| `handleDownloadAllSelected()` | Download selected candidates for all beats |
+| `handlePreviewAll()` | Search candidates for all beats in parallel (uses `settings?.concurrency ?? 4`) |
+| `handleDownloadAllSelected()` | Download selected candidates for all beats (uses `settings?.concurrency ?? 4`) |
 | `handleOpenProject(project)` | Load project, restore all state |
 | `handleNewProject()` | Reset all state to defaults |
 | `autoSaveProject(status, extra)` | Save/update current project |

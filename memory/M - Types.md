@@ -81,6 +81,7 @@ interface AppSettings {
   cleanupAfterDays?: number;        // default 0
   parallelSegments: number;         // default 1, range 1-3
   previewResolution: number;        // default 1080
+  enableQualityCheckOnPreview?: boolean;  // default true — when OFF, all candidates pass through unchecked
 }
 ```
 

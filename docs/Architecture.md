@@ -4,7 +4,7 @@ tags: [architecture]
 
 # Architecture
 
-Two modes: **CLI** (`src/index.ts`) and **Electron app** (`src-electron/`). Both share the same pipeline core (`src/pipeline/`).
+**Electron app** (`src-electron/`) with shared pipeline core (`src/pipeline/`). React UI communicates with main process via IPC.
 
 ## System Layers
 
@@ -26,7 +26,7 @@ graph LR
     subgraph "External"
         SP --> |OpenRouter| LLM[LLM APIs]
         QC --> |OpenRouter| LLM
-        AS --> |yt-dlp| YT[YouTube]
+        AS --> |API| STOCK[Pexels / Pixabay]
         REN --> |Remotion| CHROME[Headless Chrome]
         AS --> |ffmpeg| FS[Filesystem]
         REN --> |ffmpeg| FS
@@ -37,21 +37,22 @@ graph LR
 
 | Decision | Reason |
 |----------|--------|
-| Shared pipeline core | CLI and Electron use identical code |
+| All state in App.tsx | No Redux/Zustand — useState hooks only (37 hooks) |
 | State persistence | `pipeline_state.json` enables resume from any failed step |
-| Symlink-based asset serving | Avoids copying large video files into webpack bundle |
+| `renderMedia({ muted: true })` | Remotion renders video-only; all audio muxed via ffmpeg after |
+| Overlay audio via ffmpeg `amix` | Mixed into VO track (single stream) — QuickTime only plays first audio track |
+| Segment rendering | Videos split into configurable segments (~30s default) for reliability on 2+ hour videos |
 | Compositor binaries in resources | Bypasses asar read issues with native binaries |
 | Monkey-patched `fs.chmodSync` | Handles asar virtual paths in packaged app |
-| `process.chdir` for browser download | Remotion's `ensureBrowser` resolves cache dir from cwd |
 
 ## Data Flow
 
 ```
-Script.txt + VO.mp3
+Script.txt / SRT + VO.mp3
   → Scene Planner (LLM) → ScenePlan (JSON)
-  → Asset Sourcer (yt-dlp + LLM) → AssetMapping {beatId: filePath}
+  → Asset Sourcer (Pexels/Pixabay API) → AssetMapping {beatId: filePath}
   → Quality Checker (vision LLM) → accepted/rejected lists
-  → Renderer (Remotion) → output.mp4
+  → Renderer (Remotion segments + ffmpeg mux) → output.mp4
 ```
 
 See also: [[Pipeline Flow]], [[Data Model]], [[Packaging]]

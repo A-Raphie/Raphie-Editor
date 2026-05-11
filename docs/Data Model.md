@@ -4,7 +4,7 @@ tags: [pipeline, types]
 
 # Data Model
 
-All types defined in `src/types/scenePlan.ts`.
+Types defined in `src/types/scenePlan.ts` and `src-electron/shared/types.ts`.
 
 ## Core Types
 
@@ -27,37 +27,54 @@ Single visual element in the timeline. Fields vary by `type`.
   startTime: number       // Seconds from start
   duration: number        // Seconds
   type: BeatType          // See below
-  transitionIn: TransitionType
-  transitionDuration: number  // Seconds (typically 0.5-1.0)
+  transitionIn?: TransitionType
+  transitionDuration?: number  // Seconds (typically 0.5-1.0)
   
-  // clip-specific
-  clipSpeed?: number      // 0.5-0.75 (always slowed)
-  clipEffect?: ClipEffect // "none" | "time_ramp" | "reverse_forward" | "freeze_zoom"
-  freezeFrameAt?: number  // Timestamp for freeze
-  searchQuery?: string    // YouTube search query
+  // clip/image
+  searchQuery?: string    // Pexels/Pixabay search query
   
   // image-specific
-  imageAnimation?: ImageAnimation  // Always animated
+  imageAnimation?: ImageAnimation  // "zoom_in" | "zoom_out" | "pan_lr" | etc.
   
-  // title_card/lower_third
+  // lower_third
   text?: string
   subtitle?: string
   lowerThirdData?: { title, subtitle }
   
-  // motion_graphic
-  graphicType?: MotionGraphicType
-  graphicData?: { value, unit, items }
+  // overlay
+  overlay?: BeatOverlay   // Subscribe CTA overlay
 }
 ```
 
 ### BeatType
-`"clip"` | `"image"` | `"title_card"` | `"lower_third"` | `"motion_graphic"`
+`"clip"` | `"image"` | `"lower_third"` | `"subscribe_cta"`
+
+Note: `title_card` is converted to `lower_third` by `sanitizeScenePlan()`.
+
+### BeatOverlay
+```
+{
+  type: "subscribe_cta"
+  showAt: number    // Seconds from beat start
+  hideAt: number    // Seconds from beat start
+}
+```
 
 ### TransitionType
 10 types: `crossfade`, `zoom_through`, `slide_left`, `slide_up`, `whip_pan`, `glitch`, `flash_white`, `blur`, `mask_wipe`, `fade`
 
 ### AssetMapping
 `Record<string, string>` — maps `beatId` → downloaded file path.
+
+### RenderSegmentState
+```
+{
+  segmentLength: number
+  completedSegments: number[]
+  totalSegments: number
+  segmentDir: string
+}
+```
 
 ### PipelineState
 Resumable state persisted to `pipeline_state.json`.
@@ -66,15 +83,16 @@ Resumable state persisted to `pipeline_state.json`.
   runId: string
   status: "in_progress" | "completed" | "failed"
   currentStep: string
-  completedSteps: string[]   // Steps that succeeded
+  completedSteps: string[]
   totalBeats: number
   completedBeats: string[]
   failedBeats: Record<string, {reason, fallback}>
-  scenePlan: string          // Path to scene_plan.json
+  scenePlan: string          // JSON string of plan
   assets: AssetMapping
   scriptPath: string
   voPath: string
   musicPath: string
+  renderSegments: RenderSegmentState | null
 }
 ```
 

@@ -22,6 +22,9 @@ export interface SavedProject {
   status: "planning" | "editing" | "rendering" | "complete" | "error";
   outputPath?: string;
   modelTier?: string;
+  beatCandidates?: Record<string, any[]>;
+  selectedCandidateIndex?: Record<string, number>;
+  assets?: Record<string, string>;
 }
 
 export const IPC_CHANNELS = {
@@ -103,6 +106,8 @@ export interface AppSettings {
   parallelSegments: number;
   previewResolution: number;
   enableQualityCheckOnPreview?: boolean;
+  srtChunkSize?: number;
+  srtChunkDelayMs?: number;
 }
 
 export interface PipelineProgress {

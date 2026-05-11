@@ -205,6 +205,7 @@ export interface SegmentRenderCallbacks {
   onSegmentProgress?: (segmentIndex: number, totalSegments: number, frameProgress: number) => void;
   onSegmentComplete?: (segmentIndex: number) => void;
   onSegmentsInit?: (info: { totalSegments: number; segmentLength: number; segmentDir: string }) => void;
+  parallelSegments?: number;
 }
 
 export async function renderVideoSegments(
@@ -278,15 +279,15 @@ export async function renderVideoSegments(
     });
 
     await logger.log(
-      `Segment rendering: ${totalFrames} frames, ${totalSegments} segments (${segmentLength / config.fps}s each)`
+      `Segment rendering: ${totalFrames} frames, ${totalSegments} segments (${segmentLength / config.fps}s each), ${callbacks?.parallelSegments ?? 1} parallel`
     );
 
     if (completedSegments.length > 0) {
       await logger.log(`Resuming from segment ${completedSegments.length}/${totalSegments} (${completedSegments.length * segmentLength / config.fps}s already rendered)`);
     }
 
-    for (let seg = 0; seg < totalSegments; seg++) {
-      if (completedSegments.includes(seg)) continue;
+    const renderSegment = async (seg: number) => {
+      if (completedSegments.includes(seg)) return;
 
       const startFrame = seg * segmentLength;
       const endFrame = Math.min(startFrame + segmentLength - 1, totalFrames - 1);
@@ -314,6 +315,26 @@ export async function renderVideoSegments(
       completedSegments.push(seg);
       callbacks?.onSegmentComplete?.(seg);
       await logger.log(`Segment ${seg + 1}/${totalSegments} complete`);
+    };
+
+    const parallelSegments = callbacks?.parallelSegments ?? 1;
+    if (parallelSegments <= 1) {
+      for (let seg = 0; seg < totalSegments; seg++) {
+        await renderSegment(seg);
+      }
+    } else {
+      for (let batchStart = 0; batchStart < totalSegments; batchStart += parallelSegments) {
+        const batchPromises: Promise<void>[] = [];
+        for (let i = 0; i < parallelSegments && batchStart + i < totalSegments; i++) {
+          const seg = batchStart + i;
+          if (!completedSegments.includes(seg)) {
+            batchPromises.push(renderSegment(seg));
+          }
+        }
+        if (batchPromises.length > 0) {
+          await Promise.all(batchPromises);
+        }
+      }
     }
 
     await logger.log(`All ${totalSegments} segments rendered. Combining video...`);

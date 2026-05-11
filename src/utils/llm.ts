@@ -40,7 +40,7 @@ export async function chatCompletion(
   model: string,
   systemPrompt: string,
   userPrompt: string,
-  retries = 8,
+  retries = 15,
   onRetry?: RetryCallback,
   maxTokens = 4096
 ): Promise<string> {

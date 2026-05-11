@@ -221,8 +221,6 @@ OUTPUT FORMAT: JSON matching this structure:
 Ensure beats cover the ENTIRE duration with no gaps and no overlaps.${rulesSection}`;
 }
 
-const SRT_CHUNK_SIZE = 25;
-const SRT_CHUNK_CONCURRENCY = 2;
 
 export async function planScenesFromSrt(
   srtPath: string,
@@ -240,8 +238,9 @@ export async function planScenesFromSrt(
 
   await logger.log(`SRT: ${segments.length} segments, covering ${segments[0].startTime.toFixed(1)}s to ${segments[segments.length - 1].endTime.toFixed(1)}s`);
 
-  if (segments.length > SRT_CHUNK_SIZE) {
-    await logger.log(`Large SRT detected (${segments.length} segments) — using chunked planning (${SRT_CHUNK_SIZE} segments per chunk, ${SRT_CHUNK_CONCURRENCY} concurrent)`);
+  const chunkSize = config.srtChunkSize ?? 25;
+  if (segments.length > chunkSize) {
+    await logger.log(`Large SRT detected (${segments.length} segments) — using chunked planning (${chunkSize} segments per chunk)`);
     return planScenesFromSrtChunked(segments, voDurationSeconds, config, logger);
   }
 
@@ -323,16 +322,20 @@ async function planScenesFromSrtChunked(
     config.scenePlannerRules, config.searchQueryRules, config.contentRules
   );
 
+  const chunkSize = config.srtChunkSize ?? 25;
+  const chunkConcurrency = 2;
+  const chunkDelayMs = config.srtChunkDelayMs ?? 0;
+
   const chunks: SrtSegment[][] = [];
-  for (let i = 0; i < segments.length; i += SRT_CHUNK_SIZE) {
-    chunks.push(segments.slice(i, i + SRT_CHUNK_SIZE));
+  for (let i = 0; i < segments.length; i += chunkSize) {
+    chunks.push(segments.slice(i, i + chunkSize));
   }
 
-  await logger.log(`Planning ${chunks.length} chunks...`);
+  await logger.log(`Planning ${chunks.length} chunks (${chunkSize} segments per chunk, ${chunkConcurrency} concurrent, ${chunkDelayMs}ms delay)...`);
 
   const chunkPlans: ScenePlan[] = [];
-  for (let batchStart = 0; batchStart < chunks.length; batchStart += SRT_CHUNK_CONCURRENCY) {
-    const batch = chunks.slice(batchStart, batchStart + SRT_CHUNK_CONCURRENCY);
+  for (let batchStart = 0; batchStart < chunks.length; batchStart += chunkConcurrency) {
+    const batch = chunks.slice(batchStart, batchStart + chunkConcurrency);
     const results = await Promise.allSettled(
       batch.map(async (chunk, batchIdx) => {
         const chunkIdx = batchStart + batchIdx;
@@ -358,7 +361,7 @@ Generate a complete scene plan as JSON for these segments only. Beats MUST cover
         const maxAttempts = 3;
         while (attempts < maxAttempts) {
           attempts++;
-          const raw = await chatCompletion(client, config.scenePlannerModel, systemPrompt, userPrompt, 8,
+          const raw = await chatCompletion(client, config.scenePlannerModel, systemPrompt, userPrompt, 15,
             (a, m, err) => logger.log(`Chunk ${chunkIdx + 1} retry (${a}/${m}): ${err}`)
           );
           try {
@@ -392,8 +395,11 @@ Generate a complete scene plan as JSON for these segments only. Beats MUST cover
         chunkPlans.push(generateFallbackChunkPlan(chunks[chunkIdx], chunkIdx));
       }
     }
-  }
 
+    if (chunkDelayMs > 0 && batchStart + chunkConcurrency < chunks.length) {
+      await new Promise(r => setTimeout(r, chunkDelayMs));
+    }
+  }
   const allBeats: Beat[] = [];
   for (let i = 0; i < chunkPlans.length; i++) {
     const chunk = chunks[i];
@@ -649,6 +655,22 @@ async function enforceBodyDurations(
   );
 }
 
+function bresenhamSelect(total: number, count: number): number[] {
+  if (count <= 0 || total <= 0) return [];
+  if (count >= total) return Array.from({ length: total }, (_, i) => i);
+  const selected: number[] = [];
+  let error = Math.floor(total / 2);
+  const step = total;
+  for (let i = 0; i < total && selected.length < count; i++) {
+    error -= count;
+    if (error < 0) {
+      error += step;
+      selected.push(i);
+    }
+  }
+  return selected;
+}
+
 async function enforceBeatDistribution(plan: ScenePlan, clipPercent: number, imagePercent: number, hookDuration: number, logger: Logger): Promise<void> {
   let hookConverted = 0;
   for (const beat of plan.beats) {
@@ -680,12 +702,8 @@ async function enforceBeatDistribution(plan: ScenePlan, clipPercent: number, ima
   if (diff > 0) {
     const candidates = bodyBeats.filter(b => b.type === "clip" && !b.overlay);
     const toConvert = Math.min(Math.abs(diff), candidates.length);
-    const stride = candidates.length / toConvert;
-    const toFlip = new Set<number>();
-    for (let i = 0; i < toConvert; i++) {
-      toFlip.add(Math.min(Math.round(i * stride), candidates.length - 1));
-    }
-    for (const idx of toFlip) {
+    const selected = bresenhamSelect(candidates.length, toConvert);
+    for (const idx of selected) {
       candidates[idx].type = "image";
       candidates[idx].imageAnimation = IMAGE_ANIMATIONS[Math.floor(Math.random() * IMAGE_ANIMATIONS.length)];
       bodyConverted++;
@@ -693,12 +711,8 @@ async function enforceBeatDistribution(plan: ScenePlan, clipPercent: number, ima
   } else if (diff < 0) {
     const candidates = bodyBeats.filter(b => b.type === "image" && !b.overlay);
     const toConvert = Math.min(Math.abs(diff), candidates.length);
-    const stride = candidates.length / toConvert;
-    const toFlip = new Set<number>();
-    for (let i = 0; i < toConvert; i++) {
-      toFlip.add(Math.min(Math.round(i * stride), candidates.length - 1));
-    }
-    for (const idx of toFlip) {
+    const selected = bresenhamSelect(candidates.length, toConvert);
+    for (const idx of selected) {
       candidates[idx].type = "clip";
       delete candidates[idx].imageAnimation;
       bodyConverted++;

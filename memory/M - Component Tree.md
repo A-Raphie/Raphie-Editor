@@ -56,7 +56,9 @@ App.tsx (root — all state lives here)
 
 ### ModelSelector (`ModelSelector.tsx`)
 **Props:** `settings, onChange`
-- Dropdown for model tier selection
+- Dropdown for planner model (6 models: gemma-3-4b-it, deepseek-v4-flash, etc.) with /hr cost labels
+- Dropdown for checker model (4 models) with /hr cost labels
+- Cost shown inline in dropdown options
 - Inline in editor toolbar
 
 ### BeatTimeline (`BeatTimeline.tsx`, 209 lines)
@@ -87,8 +89,8 @@ App.tsx (root — all state lives here)
 ### Settings (`Settings.tsx`, 330 lines)
 **Props:** `settings, onSave, onClose`
 - Modal with 3 tabs: General, API, Advanced
-- General: clip/image percent, resolution, concurrency, FPS
-- API: OpenRouter key, Pexels key, Pixabay key, model selectors
+- General: clip/image percent, resolution, concurrency, FPS, **Quality Check on Preview toggle** (checkbox, default ON)
+- API: OpenRouter key, Pexels key, Pixabay key, model selectors with /hr pricing
 - Advanced: hook duration, clip durations, quality threshold, segment length, search query rules, scene planner rules, content rules, vignette, color grade, forbidden words, generic fallbacks, cleanup settings, parallel segments
 - Validates clip% + image% = 100
 
@@ -105,6 +107,13 @@ App.tsx (root — all state lives here)
 
 ### LogViewer (`LogViewer.tsx`)
 - Standalone log viewer component
+
+### Remotion Components (`src/remotion/`)
+- **Documentary.tsx** — Main composition, `transitionDuration ?? 0` safety, overlay `<Sequence>` with hardcoded 180 frames
+- **GraphicOverlay.tsx** — Subscribe overlay, `<OffthreadVideo>` without `muted`, uses `staticFile("vfx/subscribe.mp4")`
+- **VideoClip.tsx**, **ImageSlide.tsx** — Beat renderers
+- **Transition.tsx** — Transition effects
+- **LowerThird.tsx** — Title card / lower third overlay
 
 ---
 
