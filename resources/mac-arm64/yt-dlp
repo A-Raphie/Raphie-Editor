@@ -1,0 +1,5 @@
+#!/bin/bash
+SELF="$(cd "$(dirname "$0")" && pwd)"
+PYTHON="python3"
+[ -x /opt/homebrew/bin/python3 ] && PYTHON=/opt/homebrew/bin/python3
+exec "$PYTHON" -c "import sys; sys.path.insert(0, '${SELF}/yt_dlp_bundle'); from yt_dlp import main; main()" "$@"

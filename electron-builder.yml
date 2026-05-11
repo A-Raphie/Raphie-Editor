@@ -1,0 +1,58 @@
+appId: com.raphieseditor.app
+productName: Raphie's Editor
+directories:
+  buildResources: build
+  output: dist
+files:
+  - "out/**/*"
+  - "src/remotion/**/*"
+  - "src-electron/shared/**/*"
+  - "node_modules/**/*"
+  - "assets/**/*"
+  - "!dist/**/*"
+  - "!output/clips/**/*"
+  - "!output/images/**/*"
+  - "!output/temp/**/*"
+  - "!input/**/*"
+  - "!node_modules/**/*.map"
+extraResources:
+  - from: "resources/mac"
+    to: "mac"
+    filter:
+      - "**/*"
+  - from: "resources/mac-arm64"
+    to: "mac-arm64"
+    filter:
+      - "**/*"
+  - from: "assets/vfx"
+    to: "vfx"
+    filter:
+      - "**/*"
+mac:
+  category: public.app-category.productivity
+  target:
+    - target: dmg
+      arch:
+        - arm64
+  identity: null
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+dmg:
+  title: "${productName} ${version}"
+  artifactName: "${productName}-${version}-mac.${ext}"
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+asar: true
+asarUnpack:
+  - "node_modules/@remotion/**"
+  - "node_modules/webpack/**"
+  - "node_modules/esbuild/**"
+  - "node_modules/@esbuild/**"
+  - "src/remotion/**/*"

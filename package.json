@@ -1,0 +1,47 @@
+{
+  "name": "raphies-editor",
+  "version": "1.0.0",
+  "main": "out/main/index.js",
+  "scripts": {
+    "start": "tsx src/index.ts run input/script.txt input/vo.mp3",
+    "run": "tsx src/index.ts run",
+    "resume": "tsx src/index.ts resume",
+    "models": "tsx src/index.ts models",
+    "preview": "npx remotion studio src/remotion/index.ts",
+    "typecheck": "tsc --noEmit",
+    "dev": "electron-vite dev",
+    "build:electron": "electron-vite build",
+    "build:dmg": "electron-vite build && electron-builder --mac",
+    "update:app": "bash update-app.sh",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@remotion/bundler": "^4.0.457",
+    "@remotion/cli": "^4.0.457",
+    "@remotion/renderer": "^4.0.457",
+    "mammoth": "^1.12.0",
+    "openai": "^6.36.0",
+    "pdf-parse": "^2.4.5",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
+    "remotion": "^4.0.457"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.2.4",
+    "@types/node": "^25.6.0",
+    "@types/react": "^19.2.14",
+    "@vitejs/plugin-react": "^6.0.1",
+    "electron": "^41.5.0",
+    "electron-builder": "^26.8.1",
+    "electron-vite": "^5.0.0",
+    "tailwindcss": "^4.2.4",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.10"
+  }
+}
