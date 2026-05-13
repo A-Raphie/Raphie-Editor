@@ -637,7 +637,10 @@ async function muxAudio(
   }
 }
 
-function cleanStaleTempDirs(logger: Logger): void {
+function cleanStaleTempDirs(config: Config, logger: Logger): void {
+  const cleanupDays = config.tempCleanupDays ?? 1;
+  if (cleanupDays <= 0) return;
+  const maxAgeMs = cleanupDays * 24 * 60 * 60 * 1000;
   const tmpDir = os.tmpdir();
   try {
     const entries = fs.readdirSync(tmpDir);
@@ -649,7 +652,7 @@ function cleanStaleTempDirs(logger: Logger): void {
           const fullPath = path.join(tmpDir, entry);
           const stat = fs.statSync(fullPath);
           const ageMs = Date.now() - stat.mtimeMs;
-          if (ageMs > 24 * 60 * 60 * 1000) {
+          if (ageMs > maxAgeMs) {
             fs.rmSync(fullPath, { recursive: true, force: true });
             cleaned++;
           }
@@ -678,7 +681,7 @@ export async function renderVideoSegmentsFFmpeg(
   const fps = config.fps;
   const { width, height } = res;
 
-  cleanStaleTempDirs(logger);
+  cleanStaleTempDirs(config, logger);
 
   const segmentDir =
     existingState?.segmentDir ??

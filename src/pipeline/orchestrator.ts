@@ -499,9 +499,11 @@ export class Pipeline {
 
     const result = await fn();
 
-    if (!this.state.completedSteps.includes(stepName)) {
-      this.state.completedSteps.push(stepName);
+    const steps = this.state.completedSteps ?? [];
+    if (!steps.includes(stepName)) {
+      steps.push(stepName);
     }
+    this.state.completedSteps = steps;
     await this.saveState();
     await this.logger.log(`Completed step: ${stepName}`);
     return result;

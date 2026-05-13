@@ -289,6 +289,11 @@ export default function Settings({ settings, onSave, onClose }: SettingsProps) {
 											<input type="number" min={0} max={365} value={form.cleanupAfterDays ?? 0} onChange={(e) => setForm({ ...form, cleanupAfterDays: Math.max(0, parseInt(e.target.value) || 0) })} className="w-16 bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1 text-sm text-zinc-200 text-center focus:outline-none focus:border-amber-500" />
 											<span className="text-xs text-zinc-400">days (0 = immediate after render)</span>
 										</div>
+										<div className="mt-3 flex items-center gap-3">
+											<span className="text-xs text-zinc-400 whitespace-nowrap">Clean stale temp files after</span>
+											<input type="number" min={0} max={30} value={form.tempCleanupDays ?? 1} onChange={(e) => setForm({ ...form, tempCleanupDays: Math.max(0, parseInt(e.target.value) || 0) })} className="w-16 bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1 text-sm text-zinc-200 text-center focus:outline-none focus:border-amber-500" />
+											<span className="text-xs text-zinc-400">days (0 = disabled)</span>
+										</div>
 									</div>
 								</div>
 							</>

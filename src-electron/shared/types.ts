@@ -107,6 +107,7 @@ export interface AppSettings {
   genericFallbacks?: string;
   cleanupAfterRender?: boolean;
   cleanupAfterDays?: number;
+  tempCleanupDays?: number;
   parallelSegments: number;
   previewResolution: number;
   renderer?: "remotion" | "ffmpeg";

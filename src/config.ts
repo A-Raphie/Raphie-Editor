@@ -68,6 +68,7 @@ export interface Config {
   genericFallbacks: string[];
   cleanupAfterRender: boolean;
   cleanupAfterDays: number;
+  tempCleanupDays: number;
   parallelSegments: number;
   previewResolution: number;
   renderer: "remotion" | "ffmpeg";
@@ -133,6 +134,7 @@ export function createConfig(overrides: Partial<Config> = {}): Config {
     genericFallbacks: overrides.genericFallbacks ?? ["nature", "garden", "landscape", "outdoor"],
     cleanupAfterRender: overrides.cleanupAfterRender ?? true,
     cleanupAfterDays: overrides.cleanupAfterDays ?? 0,
+    tempCleanupDays: (overrides as any).tempCleanupDays ?? 1,
     parallelSegments: overrides.parallelSegments ?? 1,
     previewResolution: overrides.previewResolution ?? 1080,
     renderer: (overrides as any).renderer ?? "remotion",

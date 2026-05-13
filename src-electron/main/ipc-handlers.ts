@@ -158,6 +158,7 @@ RULES:
   cleanupAfterDays: 0,
   enableQualityCheckOnPreview: true,
   renderer: "remotion",
+  tempCleanupDays: 1,
 };
 
 function buildConfigOverrides(settings: AppSettings, projectId?: string, args?: any) {
@@ -215,6 +216,7 @@ function buildConfigOverrides(settings: AppSettings, projectId?: string, args?: 
     srtChunkSize: settings.srtChunkSize ?? 25,
     srtChunkDelayMs: settings.srtChunkDelayMs ?? 0,
     renderer: settings.renderer ?? "remotion",
+    tempCleanupDays: settings.tempCleanupDays ?? 1,
   };
 }
 
