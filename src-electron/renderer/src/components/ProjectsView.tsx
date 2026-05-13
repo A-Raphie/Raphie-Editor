@@ -76,6 +76,9 @@ function ProjectCard({ project, onOpen, onRename, onDelete, onAddToQueue }: Proj
 						<h3 className="text-base font-semibold text-zinc-200 truncate cursor-pointer hover:text-white transition-colors" onDoubleClick={() => setEditing(true)} title="Double-click to rename">{project.name}</h3>
 					)}
 					<p className="text-xs text-zinc-500 mt-1.5 truncate">{scriptName}</p>
+				{project.scenePlan?.totalDurationSeconds != null && (
+					<p className="text-xs text-zinc-500 mt-1">⏱ {Math.floor(project.scenePlan.totalDurationSeconds / 60)}:{String(Math.floor(project.scenePlan.totalDurationSeconds % 60)).padStart(2, "0")}</p>
+				)}
 				</div>
 				<span className={`text-[10px] uppercase tracking-wider font-medium px-2.5 py-1 rounded-md border ${statusBadgeColor(project.status)}`}>{statusLabel(project.status)}</span>
 			</div>

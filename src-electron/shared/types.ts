@@ -65,10 +65,12 @@ export const IPC_CHANNELS = {
   SEARCH_BEAT_CANDIDATES: "search-beat-candidates",
   DOWNLOAD_SELECTED_CANDIDATE: "download-selected-candidate",
   GET_BEAT_TEXT_SEGMENTS: "get-beat-text-segments",
+  GET_MODEL_UPTIME: "get-model-uptime",
+  RECOVER_ASSETS: "recover-assets",
 } as const;
 
 export interface AppSettings {
-  openrouterApiKey: string;
+  openrouterApiKeys: string[];
   scenePlannerModel: string;
   qualityCheckerModel: string;
   pexelsApiKey: string;
@@ -76,6 +78,8 @@ export interface AppSettings {
   clipPercent: number;
   imagePercent: number;
   concurrency: number;
+  previewConcurrency: number;
+  renderConcurrency: number;
   fps: number;
   downloadResolution: number;
   downloadTimeout: number;

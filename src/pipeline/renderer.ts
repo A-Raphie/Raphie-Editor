@@ -75,12 +75,15 @@ function preparePublicDir(
   try { fs.rmSync(publicDir, { recursive: true, force: true }); } catch {}
   fs.mkdirSync(publicDir, { recursive: true });
 
-  for (const [, absPath] of Object.entries(assets)) {
-    if (!absPath || !fs.existsSync(absPath)) continue;
-    const rel = path.relative(outputDir, absPath);
-    const dest = path.join(publicDir, RENDER_PREFIX + "output", rel);
-    fs.mkdirSync(path.dirname(dest), { recursive: true });
-    fs.copyFileSync(absPath, dest);
+  const assetEntries = Object.entries(assets).filter(([, absPath]) => absPath && fs.existsSync(absPath));
+  for (let i = 0; i < assetEntries.length; i += 10) {
+    const batch = assetEntries.slice(i, i + 10);
+    for (const [, absPath] of batch) {
+      const rel = path.relative(outputDir, absPath);
+      const dest = path.join(publicDir, RENDER_PREFIX + "output", rel);
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      fs.copyFileSync(absPath, dest);
+    }
   }
 
   let voUrl: string | undefined;
@@ -137,6 +140,7 @@ export async function renderVideo(
   const browserExecutable = await getBrowserExecutable(logger);
 
   await logger.log("Preparing render assets...");
+
   const { publicDir, voUrl, musicUrl } = preparePublicDir(
     config.outputDir, assets, voPath, musicPath, config.vfxPath
   );
@@ -174,12 +178,11 @@ export async function renderVideo(
       browserExecutable,
     });
 
-    await logger.log(`Rendering ${scenePlan.totalDurationSeconds}s video at 1080p...`);
-
+    const singleRenderCodec = (config as any).videoCodec === "h264" ? "h264" : "h265";
     await renderMedia({
       composition,
       serveUrl,
-      codec: "h265",
+      codec: singleRenderCodec as "h264" | "h265",
       audioCodec: "aac",
       outputLocation: outputPath,
       inputProps,
@@ -226,6 +229,7 @@ export async function renderVideoSegments(
   const browserExecutable = await getBrowserExecutable(logger);
 
   await logger.log("Preparing render assets...");
+
   const { publicDir, voUrl, musicUrl } = preparePublicDir(
     config.outputDir, assets, voPath, musicPath, config.vfxPath
   );
@@ -286,6 +290,9 @@ export async function renderVideoSegments(
       await logger.log(`Resuming from segment ${completedSegments.length}/${totalSegments} (${completedSegments.length * segmentLength / config.fps}s already rendered)`);
     }
 
+    const renderConcurrency = config.renderConcurrency ?? 3;
+    const renderCodec = (config as any).videoCodec === "h264" ? "h264" : "h265";
+
     const renderSegment = async (seg: number) => {
       if (completedSegments.includes(seg)) return;
 
@@ -295,22 +302,42 @@ export async function renderVideoSegments(
 
       const segStartSec = (startFrame / config.fps).toFixed(1);
       const segEndSec = (endFrame / config.fps).toFixed(1);
-      await logger.log(`Rendering segment ${seg + 1}/${totalSegments} (${segStartSec}s-${segEndSec}s)...`);
+      await logger.log(`Rendering segment ${seg + 1}/${totalSegments} (${segStartSec}s-${segEndSec}s) with ${renderConcurrency} frame concurrency, ${renderCodec}...`);
 
-      await renderMedia({
-        composition,
-        serveUrl,
-        codec: "h265",
-        outputLocation: segmentFile,
-        inputProps,
-        binariesDirectory,
-        browserExecutable,
-        frameRange: [startFrame, endFrame],
-        muted: true,
-        onProgress: ({ progress }: { progress: number }) => {
-          callbacks?.onSegmentProgress?.(seg, totalSegments, progress);
-        },
-      });
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          const timeoutMs = 20 * 60 * 1000;
+          let timedOut = false;
+          const result = await Promise.race([
+            renderMedia({
+              composition,
+              serveUrl,
+              codec: renderCodec as "h264" | "h265",
+              outputLocation: segmentFile,
+              inputProps,
+              binariesDirectory,
+              browserExecutable,
+              frameRange: [startFrame, endFrame],
+              muted: true,
+              concurrency: renderConcurrency,
+              onProgress: ({ progress }: { progress: number }) => {
+                callbacks?.onSegmentProgress?.(seg, totalSegments, progress);
+              },
+            }),
+            new Promise<"timeout">((resolve) => setTimeout(() => { timedOut = true; resolve("timeout"); }, timeoutMs)),
+          ]);
+          if (result === "timeout") {
+            throw new Error(`Segment ${seg + 1} timed out after 20 minutes`);
+          }
+          break;
+        } catch (err: any) {
+          if (attempt < 2) {
+            await logger.warn(`Segment ${seg + 1} failed (attempt ${attempt}/2): ${err.message}. Retrying...`);
+          } else {
+            throw err;
+          }
+        }
+      }
 
       completedSegments.push(seg);
       callbacks?.onSegmentComplete?.(seg);
@@ -350,7 +377,7 @@ export async function renderVideoSegments(
       fps: config.fps,
       framesPerChunk: segmentLength,
       compositionDurationInFrames: totalFrames,
-      codec: "h265",
+      codec: renderCodec as "h264" | "h265",
       audioCodec: "aac",
       outputLocation: tempVideo,
       binariesDirectory: binariesDirectory ?? null,

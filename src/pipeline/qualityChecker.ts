@@ -63,7 +63,7 @@ export async function qualityCheckAssets(
   config: Config,
   logger: Logger
 ): Promise<{ accepted: AssetMapping; rejected: string[] }> {
-  const client = createOpenRouterClient(config);
+  const client = createOpenRouterClient(config.openrouterApiKeys[0]);
   const accepted: AssetMapping = {};
   const rejected: string[] = [];
 
@@ -186,7 +186,7 @@ export async function checkThumbnail(
   config: Config,
   logger: Logger
 ): Promise<{ accepted: boolean; score: number; reason: string }> {
-  const client = createOpenRouterClient(config);
+  const client = createOpenRouterClient(config.openrouterApiKeys[0]);
   try {
     const base64 = await fileToBase64(thumbnailPath);
     const mimeType = await getMimeType(thumbnailPath);

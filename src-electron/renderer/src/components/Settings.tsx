@@ -15,13 +15,14 @@ export default function Settings({ settings, onSave, onClose }: SettingsProps) {
 	const [form, setForm] = useState<AppSettings>({ ...settings });
 	const [clipInput, setClipInput] = useState(String(settings.clipPercent ?? 70));
 	const [imageInput, setImageInput] = useState(String(settings.imagePercent ?? 30));
+	const [apiKeysText, setApiKeysText] = useState((settings.openrouterApiKeys ?? []).join("\n"));
 
-	const handleSubmit = (e: React.FormEvent) => {
-		e.preventDefault();
+	const handleSubmit = () => {
 		const cp = parseInt(clipInput) || 70;
 		const ip = parseInt(imageInput) || 30;
 		if (cp + ip !== 100) return;
-		onSave({ ...form, clipPercent: cp, imagePercent: ip });
+		const keys = apiKeysText.split(/[\n,]/).map((k: string) => k.trim()).filter((k: string) => k.length > 0);
+		onSave({ ...form, clipPercent: cp, imagePercent: ip, openrouterApiKeys: keys });
 	};
 
 	const percentValid = (parseInt(clipInput) || 70) + (parseInt(imageInput) || 30) === 100;
@@ -29,7 +30,7 @@ export default function Settings({ settings, onSave, onClose }: SettingsProps) {
 	return (
 		<div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
 			<div className="bg-zinc-900 rounded-xl w-[600px] max-h-[85vh] border border-zinc-700 flex flex-col">
-				<form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
+				<form className="flex flex-col flex-1 min-h-0">
 					<div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800">
 						<h2 className="text-lg font-bold text-zinc-100">Settings</h2>
 						<button type="button" onClick={onClose} className="w-8 h-8 rounded-lg flex items-center justify-center text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors">×</button>
@@ -45,8 +46,15 @@ export default function Settings({ settings, onSave, onClose }: SettingsProps) {
 						{tab === "api" && (
 							<>
 								<div>
-									<label className={labelCls}>OpenRouter API Key</label>
-									<input type="password" value={form.openrouterApiKey} onChange={(e) => setForm({ ...form, openrouterApiKey: e.target.value })} className={inputCls} placeholder="sk-or-v1-..." />
+									<label className={labelCls}>OpenRouter API Keys</label>
+									<p className="text-[10px] text-zinc-600 mb-1">One key per line or comma-separated. More keys = faster chunk planning (2 concurrent per key)</p>
+									<textarea
+										value={apiKeysText}
+										onChange={(e) => setApiKeysText(e.target.value)}
+										rows={6}
+										className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 font-mono focus:outline-none focus:border-amber-500 resize-y"
+										placeholder={"sk-or-v1-...\nsk-or-v1-...\nsk-or-v1-..."}
+									/>
 								</div>
 								<div className="grid grid-cols-2 gap-4">
 									<div>
@@ -89,28 +97,32 @@ export default function Settings({ settings, onSave, onClose }: SettingsProps) {
 									<input type="checkbox" checked={form.enableQualityCheckOnPreview ?? true} onChange={(e) => setForm({ ...form, enableQualityCheckOnPreview: e.target.checked })} className="accent-blue-500" />
 									<label className={labelCls}>Quality Check on Preview</label>
 								</div>
-								<div className="grid grid-cols-2 gap-4">
-									<div>
-										<label className={labelCls}>Concurrency</label>
-										<input type="number" min={1} max={20} value={form.concurrency} onChange={(e) => setForm({ ...form, concurrency: parseInt(e.target.value) || 4 })} className={inputCls} />
-									</div>
-									<div>
-										<label className={labelCls}>FPS</label>
-										<select value={form.fps} onChange={(e) => setForm({ ...form, fps: parseInt(e.target.value) || 30 })} className={inputCls}>
-											<option value={30}>30 fps</option>
-											<option value={60}>60 fps</option>
-										</select>
+								<div>
+									<label className={labelCls}>Concurrency</label>
+									<div className="grid grid-cols-4 gap-2 items-end">
+										<div>
+											<label className="block text-[10px] text-zinc-500 mb-1">Download</label>
+											<input type="number" min={1} max={20} value={form.concurrency} onChange={(e) => setForm({ ...form, concurrency: parseInt(e.target.value) || 4 })} className={inputCls} />
+										</div>
+										<div>
+											<label className="block text-[10px] text-zinc-500 mb-1">Preview</label>
+											<input type="number" min={1} max={30} value={form.previewConcurrency ?? 10} onChange={(e) => setForm({ ...form, previewConcurrency: Math.min(30, Math.max(1, parseInt(e.target.value) || 10)) })} className={inputCls} />
+										</div>
+										<div>
+											<label className="block text-[10px] text-zinc-500 mb-1">Frame</label>
+											<input type="number" min={1} max={8} value={form.renderConcurrency ?? 3} onChange={(e) => setForm({ ...form, renderConcurrency: Math.min(8, Math.max(1, parseInt(e.target.value) || 3)) })} className={inputCls} />
+										</div>
+										<div>
+											<label className={labelCls}>FPS</label>
+											<select value={form.fps} onChange={(e) => setForm({ ...form, fps: parseInt(e.target.value) || 30 })} className={inputCls}>
+												<option value={24}>24 fps</option>
+												<option value={30}>30 fps</option>
+												<option value={60}>60 fps</option>
+											</select>
+										</div>
 									</div>
 								</div>
 								<div className="grid grid-cols-2 gap-4">
-									<div>
-										<label className={labelCls}>Download Resolution</label>
-										<select value={form.downloadResolution ?? 2160} onChange={(e) => setForm({ ...form, downloadResolution: parseInt(e.target.value) })} className={inputCls}>
-											<option value="2160">4K (2160p)</option>
-											<option value="1080">1080p</option>
-											<option value="720">720p</option>
-										</select>
-									</div>
 									<div>
 										<label className={labelCls}>Timeout (sec)</label>
 										<input type="number" min={30} max={300} value={form.downloadTimeout ?? 90} onChange={(e) => setForm({ ...form, downloadTimeout: parseInt(e.target.value) || 90 })} className={inputCls} />
@@ -239,9 +251,9 @@ export default function Settings({ settings, onSave, onClose }: SettingsProps) {
 										</div>
 										<div className="grid grid-cols-2 gap-4">
 											<div>
-												<label className={labelCls}>Chunk Delay (ms)</label>
-												<p className="text-[10px] text-zinc-600 mb-1">Delay between batch requests. 0 = no delay, 2000 = 2s pause between batches</p>
-												<input type="number" min={0} max={30000} step={500} value={form.srtChunkDelayMs ?? 0} onChange={(e) => setForm({ ...form, srtChunkDelayMs: parseInt(e.target.value) || 0 })} className={inputCls} />
+												<label className={labelCls}>Chunk Delay (sec)</label>
+												<p className="text-[10px] text-zinc-600 mb-1">Delay between batch requests</p>
+												<input type="number" min={0} max={30} step={0.5} value={(form.srtChunkDelayMs ?? 0) / 1000} onChange={(e) => setForm({ ...form, srtChunkDelayMs: Math.round((parseFloat(e.target.value) || 0) * 1000) })} className={inputCls} />
 											</div>
 											<div>
 												<label className={labelCls}>Quality Score Threshold</label>
@@ -338,7 +350,7 @@ export default function Settings({ settings, onSave, onClose }: SettingsProps) {
 
 					<div className="flex justify-end gap-3 px-6 py-4 border-t border-zinc-800 bg-zinc-900/50">
 						<button type="button" onClick={onClose} className="px-5 py-2.5 rounded-lg text-sm font-medium text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition-all">Cancel</button>
-						<button type="submit" disabled={!percentValid} className={`px-6 py-2.5 rounded-lg text-sm font-semibold transition-all ${percentValid ? "bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-black shadow-lg hover:shadow-xl" : "bg-zinc-800 text-zinc-500 cursor-not-allowed"}`}>Save Settings</button>
+						<button type="button" onClick={handleSubmit} disabled={!percentValid} className={`px-6 py-2.5 rounded-lg text-sm font-semibold transition-all ${percentValid ? "bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-black shadow-lg hover:shadow-xl" : "bg-zinc-800 text-zinc-500 cursor-not-allowed"}`}>Save Settings</button>
 					</div>
 				</form>
 			</div>

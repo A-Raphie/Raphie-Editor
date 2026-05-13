@@ -19,7 +19,7 @@ const MODELS: Record<ModelOption, ModelConfig> = {
 };
 
 export interface Config {
-  openrouterApiKey: string;
+  openrouterApiKeys: string[];
   modelOption: ModelOption;
   scenePlannerModel: string;
   qualityCheckerModel: string;
@@ -28,6 +28,8 @@ export interface Config {
   clipPercent: number;
   imagePercent: number;
   concurrency: number;
+  previewConcurrency: number;
+  renderConcurrency: number;
   fps: number;
   downloadResolution: number;
   downloadTimeout: number;
@@ -77,7 +79,11 @@ export function createConfig(overrides: Partial<Config> = {}): Config {
   const models = MODELS[modelOption];
 
   return {
-    openrouterApiKey: process.env.OPENROUTER_API_KEY ?? "",
+    openrouterApiKeys: overrides.openrouterApiKeys?.length
+      ? overrides.openrouterApiKeys
+      : process.env.OPENROUTER_API_KEY
+        ? [process.env.OPENROUTER_API_KEY]
+        : [],
     modelOption,
     scenePlannerModel: overrides.scenePlannerModel ?? models.scenePlanner,
     qualityCheckerModel: overrides.qualityCheckerModel ?? models.qualityChecker,
@@ -86,7 +92,9 @@ export function createConfig(overrides: Partial<Config> = {}): Config {
     clipPercent: overrides.clipPercent ?? 70,
     imagePercent: overrides.imagePercent ?? 30,
     concurrency: overrides.concurrency ?? 4,
-    fps: 30,
+    previewConcurrency: (overrides as any).previewConcurrency ?? 10,
+    renderConcurrency: (overrides as any).renderConcurrency ?? 3,
+    fps: overrides.fps ?? 30,
     downloadResolution: overrides.downloadResolution ?? 2160,
     downloadTimeout: overrides.downloadTimeout ?? 90_000,
     maxRetries: 5,

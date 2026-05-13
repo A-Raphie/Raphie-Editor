@@ -38,6 +38,10 @@ interface BeatTimelineProps {
 
 export default function BeatTimeline({ beats, selectedBeatId, onSelectBeat, assets, thumbnails, beatStatuses, assetValidation, subscribeHintBeatIds, beatCandidates, selectedCandidateIndex }: BeatTimelineProps) {
 	const [hoveredId, setHoveredId] = useState<string | null>(null);
+	const [subOnly, setSubOnly] = useState(false);
+
+	const subBeats = beats.filter((b) => b.overlay?.type === "subscribe_cta" || subscribeHintBeatIds?.has(b.id));
+	const displayedBeats = subOnly ? subBeats : beats;
 
 	const getBorderColor = (beat: Beat) => {
 		const validation = assetValidation?.[beat.id];
@@ -63,15 +67,26 @@ export default function BeatTimeline({ beats, selectedBeatId, onSelectBeat, asse
 	return (
 		<div className="bg-zinc-900/50 rounded-xl p-4">
 			<div className="flex items-center justify-between mb-4 px-1">
-				<h3 className="text-sm font-semibold text-zinc-300">
-					Scene Plan — <span className="text-amber-400">{beats.length} beats</span>
-				</h3>
+				<div className="flex items-center gap-3">
+					<h3 className="text-sm font-semibold text-zinc-300">
+						Scene Plan — <span className="text-amber-400">{beats.length} beats</span>
+					</h3>
+					{subBeats.length > 0 && (
+						<button
+							onClick={() => setSubOnly(!subOnly)}
+							className={`text-xs px-2.5 py-1 rounded-md border font-medium transition-all ${subOnly ? "bg-red-950/80 text-red-300 border-red-500/50" : "bg-zinc-800 text-zinc-400 border-zinc-700 hover:border-zinc-600 hover:text-zinc-300"}`}
+						>
+							{subBeats.length} SUB {subOnly ? "(showing)" : ""}
+						</button>
+					)}
+				</div>
 			</div>
 			<div
 				className="flex flex-wrap gap-3 scrollbar-thin scrollbar-thumb-zinc-700 scrollbar-track-transparent"
 				style={{ maxHeight: "calc(100vh - 340px)", overflowY: "auto" }}
 			>
-				{beats.map((beat, i) => {
+				{displayedBeats.map((beat, i) => {
+					const origIdx = beats.indexOf(beat);
 					const isSelected = beat.id === selectedBeatId;
 					const hasAsset = !!assets?.[beat.id];
 					const thumbUrl = thumbnails?.[beat.id];
@@ -95,7 +110,7 @@ export default function BeatTimeline({ beats, selectedBeatId, onSelectBeat, asse
 							onMouseLeave={() => setHoveredId(null)}
 							className={`relative rounded-lg border-2 overflow-hidden transition-all duration-150 cursor-pointer ${isSelected ? "ring-2 ring-white/80 ring-offset-2 ring-offset-zinc-900" : ""} ${borderColor} ${isHovered ? "transform scale-[1.02] shadow-lg" : "shadow-sm"}`}
 							style={{ width: 128, height: 80 }}
-							title={`#${i + 1} ${beat.type} — ${beat.duration}s\n${beat.searchQuery || ""}`}
+							title={`#${origIdx + 1} ${beat.type} — ${beat.duration}s\n${beat.searchQuery || ""}`}
 						>
 							{previewThumb ? (
 								<img key={previewThumb} src={previewThumb} className="w-full h-full object-cover" alt="" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
@@ -103,7 +118,7 @@ export default function BeatTimeline({ beats, selectedBeatId, onSelectBeat, asse
 								<img key={thumbUrl} src={`file://${thumbUrl}`} className="w-full h-full object-cover" alt="" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
 							) : (
 								<div className={`w-full h-full flex items-center justify-center ${getBgColor(beat)}`}>
-									<span className="text-xs text-zinc-500 font-medium">{i + 1}</span>
+									<span className="text-xs text-zinc-500 font-medium">{origIdx + 1}</span>
 								</div>
 							)}
 
@@ -113,8 +128,12 @@ export default function BeatTimeline({ beats, selectedBeatId, onSelectBeat, asse
 								{isFailed && !isActive && <div className="w-1.5 h-1.5 rounded-full bg-red-500" />}
 							</div>
 
-							{subscribeHintBeatIds?.has(beat.id) && (
-								<div className="absolute bottom-1 left-1.5 text-amber-400 text-sm bg-black/70 rounded px-0.5">🔔</div>
+							{(beat.overlay?.type === "subscribe_cta" || subscribeHintBeatIds?.has(beat.id)) && (
+								<div className="absolute bottom-0.5 left-1">
+									<span className={`text-[8px] font-bold px-1.5 py-0.5 rounded ${beat.overlay?.type === "subscribe_cta" ? "text-red-300 bg-red-950/90" : "text-amber-300 bg-amber-950/90"}`}>
+										🔔 {beat.overlay?.type === "subscribe_cta" ? "SUB" : ""}
+									</span>
+								</div>
 							)}
 
 							{beatCandidates?.[beat.id] && !hasAsset && (
@@ -175,7 +194,7 @@ export default function BeatTimeline({ beats, selectedBeatId, onSelectBeat, asse
 										</div>
 									)}
 									<div className="absolute top-1 left-1.5 flex flex-col gap-0.5">
-										<span className="text-[9px] font-bold text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">{i + 1}</span>
+										<span className="text-[9px] font-bold text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">{origIdx + 1}</span>
 										{isInvalid && !isFailed && (
 											<span className={`text-[7px] font-bold px-1 rounded ${validation?.reason === "corrupt" ? "bg-red-600 text-white" : validation?.reason === "quality_failed" ? "bg-amber-600 text-white" : "bg-red-600 text-white"}`}>
 												{validation?.reason === "corrupt" ? "CORRUPT" : validation?.reason === "quality_failed" ? "BAD QUAL" : "MISSING"}
@@ -183,21 +202,6 @@ export default function BeatTimeline({ beats, selectedBeatId, onSelectBeat, asse
 										)}
 										{isValid && !isDone && <span className="text-[8px] font-bold text-emerald-300">✓</span>}
 									</div>
-									{beat.overlay?.type === "subscribe_cta" && (
-										<div className="absolute bottom-1 right-1">
-											<span className="text-[7px] font-bold text-red-300 bg-red-900/90 px-1 rounded">SUB</span>
-										</div>
-									)}
-								</>
-							)}
-
-							{!isHovered && (
-								<>
-									{beat.overlay?.type === "subscribe_cta" && (
-										<div className="absolute bottom-0.5 right-0.5">
-											<span className="text-[6px] font-bold text-red-300 bg-red-900/80 px-0.5 rounded">SUB</span>
-										</div>
-									)}
 								</>
 							)}
 						</button>

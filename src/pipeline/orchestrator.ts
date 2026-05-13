@@ -464,7 +464,8 @@ export class Pipeline {
           totalSegments = total;
           const done = completedSoFar.length;
           const pct = Math.round(((done + frameProgress) / total) * 100);
-          this.emitProgress("rendering", pct, 100, `Rendering segment ${done + 1}/${total}`);
+          const framePct = Math.round(frameProgress * 100);
+          this.emitProgress("rendering", pct, 100, `Rendering segment ${seg + 1}/${total} — ${framePct}%`);
         },
         onSegmentComplete: async (seg) => {
           completedSoFar.push(seg);
@@ -606,7 +607,7 @@ export class Pipeline {
       throw new Error("At least one stock footage API key (Pexels or Pixabay) is required");
     }
 
-    if (!this.config.openrouterApiKey) {
+    if (!this.config.openrouterApiKeys || this.config.openrouterApiKeys.length === 0) {
       throw new Error("OPENROUTER_API_KEY not set");
     }
 

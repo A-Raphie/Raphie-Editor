@@ -261,7 +261,7 @@ export default function App() {
 	const openSettings = useCallback(() => setShowSettings(true), []);
 
 	const validate = useCallback((needsApi = true) => {
-		if (!settings?.openrouterApiKey && needsApi) {
+		if ((!settings?.openrouterApiKeys || settings.openrouterApiKeys.length === 0) && needsApi) {
 			setError({ title: "Missing API Key", message: "Please add your OpenRouter API key in Settings to use AI features.", actionLabel: "Open Settings", onAction: () => { setError(null); openSettings(); } });
 			return false;
 		}
@@ -481,7 +481,7 @@ export default function App() {
 		setBeatCandidates({});
 		setSelectedCandidateIndex({});
 		const assetableBeats = scenePlan.beats.filter((b: any) => (b.type === "clip" || b.type === "image") && b.searchQuery);
-		const concurrency = settings?.concurrency ?? 4;
+		const concurrency = settings?.previewConcurrency ?? 10;
 		for (let i = 0; i < assetableBeats.length; i += concurrency) {
 			if (currentProjectIdRef.current !== pid) return;
 			const batch = assetableBeats.slice(i, i + concurrency);
@@ -531,22 +531,45 @@ export default function App() {
 		const pid = currentProjectId;
 		const toDownload = scenePlan.beats.filter((b: any) => b.type === "clip" || b.type === "image").filter((b: any) => beatCandidates[b.id]?.length && !assets[b.id]);
 		const concurrency = settings?.concurrency ?? 4;
-		for (let i = 0; i < toDownload.length; i += concurrency) {
-			if (currentProjectIdRef.current !== pid) return;
-			const batch = toDownload.slice(i, i + concurrency);
+		const maxRetries = 3;
+
+		const downloadBatch = async (batch: any[], getIdx: (beatId: string) => number) => {
+			const failed: any[] = [];
 			await Promise.allSettled(batch.map(async (beat: any) => {
-				const idx = selectedCandidateIndex[beat.id] ?? 0;
+				const idx = getIdx(beat.id);
 				const candidates = beatCandidates[beat.id];
-				if (!candidates?.[idx]) return;
+				if (!candidates?.[idx]) { failed.push(beat); return; }
 				try {
 					const result = await window.api.downloadSelectedCandidate(beat.id, candidates[idx], pid);
 					if (currentProjectIdRef.current !== pid) return;
 					if (result.path) {
 						setAssets((prev) => ({ ...prev, [beat.id]: result.path }));
 						if (result.thumbnail) setThumbnails((prev) => ({ ...prev, [beat.id]: result.thumbnail }));
+					} else {
+						failed.push(beat);
 					}
-				} catch {}
+				} catch {
+					failed.push(beat);
+				}
 			}));
+			return failed;
+		};
+
+		for (let i = 0; i < toDownload.length; i += concurrency) {
+			if (currentProjectIdRef.current !== pid) return;
+			const batch = toDownload.slice(i, i + concurrency);
+			let failed = await downloadBatch(batch, (beatId) => selectedCandidateIndex[beatId] ?? 0);
+
+			for (let retry = 1; retry <= maxRetries && failed.length > 0; retry++) {
+				if (currentProjectIdRef.current !== pid) return;
+				const retryFailed = await downloadBatch(failed, (beatId) => {
+					const base = selectedCandidateIndex[beatId] ?? 0;
+					const next = base + retry;
+					const candidates = beatCandidates[beatId];
+					return candidates?.[next] ? next : base;
+				});
+				failed = retryFailed;
+			}
 		}
 	}, [currentProjectId, scenePlan, beatCandidates, selectedCandidateIndex, assets]);
 
@@ -608,8 +631,8 @@ export default function App() {
 		setBeatStatuses({});
 		setAssetValidation({});
 		setDownloadingBeats([]);
-		setBeatCandidates({});
-		setSelectedCandidateIndex({});
+		setBeatCandidates(project.beatCandidates ?? {});
+		setSelectedCandidateIndex(project.selectedCandidateIndex ?? {});
 		setBeatTextSegments({});
 		setScriptLength(0);
 		setSelectedBeatId(null);
@@ -622,7 +645,14 @@ export default function App() {
 		let stateInfo = null;
 		if (project.id) try { stateInfo = await window.api.getPipelineState(project.id, project.scriptPath ?? "", project.voPath, project.srtPath); } catch {}
 		setPipelineStateInfo(stateInfo);
-		setAssets(stateInfo?.assets ?? project.assets ?? {});
+		let loadedAssets = stateInfo?.assets ?? project.assets ?? {};
+		if (project.scenePlan && Object.keys(loadedAssets).length === 0 && project.id) {
+			try {
+				const recovered = await window.api.recoverAssets(project.scenePlan.beats, project.id);
+				if (Object.keys(recovered).length > 0) loadedAssets = recovered;
+			} catch {}
+		}
+		setAssets(loadedAssets);
 		if (project.status === "complete" && project.outputPath) setView("complete");
 		else if (project.scenePlan) setView("editor");
 		else setView("input");

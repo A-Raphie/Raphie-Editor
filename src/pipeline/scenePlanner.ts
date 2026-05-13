@@ -1,6 +1,6 @@
 import type { ScenePlan, Beat } from "../types/scenePlan.js";
 import type { Config } from "../config.js";
-import { createOpenRouterClient, chatCompletion } from "../utils/llm.js";
+import { createOpenRouterClient, createClientPool, chatCompletion } from "../utils/llm.js";
 import { Logger } from "../utils/logger.js";
 import type { SrtSegment } from "../utils/srtParser.js";
 import { parseSrt, srtSegmentsToScriptText } from "../utils/srtParser.js";
@@ -92,7 +92,7 @@ export async function planScenes(
     await logger.log("Detected count-up format — using section-locked rules");
   }
 
-  const client = createOpenRouterClient(config);
+  const client = createOpenRouterClient(config.openrouterApiKeys[0]);
   const systemPrompt = buildSystemPrompt(
     config.clipPercent, config.imagePercent,
     config.hookDuration, config.hookClipMin, config.hookClipMax,
@@ -133,6 +133,7 @@ Generate a complete scene plan as JSON.`;
       }
       await enforceBodyDurations(plan, config.hookDuration, config.bodyClipMin, config.bodyClipMax, logger);
       enforceBeatDistribution(plan, config.clipPercent, config.imagePercent, config.hookDuration, logger);
+      scaleToAudioDuration(plan, voDurationSeconds, logger);
       await logger.log(
         `Scene plan generated: ${plan.beats.length} beats (${countByType(plan, "clip")} clips, ${countByType(plan, "image")} images, ${countWithOverlay(plan)} with overlays)`
       );
@@ -250,7 +251,7 @@ export async function planScenesFromSrt(
     await logger.log("Detected count-up format — using section-locked rules");
   }
 
-  const client = createOpenRouterClient(config);
+  const client = createOpenRouterClient(config.openrouterApiKeys[0]);
   const systemPrompt = buildSrtSystemPrompt(
     config.clipPercent, config.imagePercent,
     config.hookDuration, config.hookClipMin, config.hookClipMax,
@@ -295,6 +296,7 @@ Generate a complete scene plan as JSON. Each segment's time range MUST be fully 
       }
       await enforceBodyDurations(plan, config.hookDuration, config.bodyClipMin, config.bodyClipMax, logger);
       enforceBeatDistribution(plan, config.clipPercent, config.imagePercent, config.hookDuration, logger);
+      scaleToAudioDuration(plan, voDurationSeconds, logger);
       await logger.log(
         `Scene plan generated: ${plan.beats.length} beats (${countByType(plan, "clip")} clips, ${countByType(plan, "image")} images, ${countWithOverlay(plan)} with overlays)`
       );
@@ -314,7 +316,7 @@ async function planScenesFromSrtChunked(
   config: Config,
   logger: Logger
 ): Promise<ScenePlan> {
-  const client = createOpenRouterClient(config);
+  const clientPool = createClientPool(config.openrouterApiKeys);
   const systemPrompt = buildSrtSystemPrompt(
     config.clipPercent, config.imagePercent,
     config.hookDuration, config.hookClipMin, config.hookClipMax,
@@ -322,27 +324,41 @@ async function planScenesFromSrtChunked(
     config.scenePlannerRules, config.searchQueryRules, config.contentRules
   );
 
+  const isFreeModel = config.scenePlannerModel.includes("owl") || config.scenePlannerModel.includes("free");
   const chunkSize = config.srtChunkSize ?? 25;
-  const chunkConcurrency = 2;
-  const chunkDelayMs = config.srtChunkDelayMs ?? 0;
+  const chunkConcurrency = isFreeModel
+    ? Math.min(clientPool.length * 2, 4)
+    : clientPool.length * 2;
+  const chunkDelayMs = isFreeModel ? (config.srtChunkDelayMs ?? 0) : 0;
 
   const chunks: SrtSegment[][] = [];
   for (let i = 0; i < segments.length; i += chunkSize) {
     chunks.push(segments.slice(i, i + chunkSize));
   }
 
-  await logger.log(`Planning ${chunks.length} chunks (${chunkSize} segments per chunk, ${chunkConcurrency} concurrent, ${chunkDelayMs}ms delay)...`);
+  if (isFreeModel) {
+    await logger.log(`Planning ${chunks.length} chunks (${chunkSize} segments per chunk, ${chunkConcurrency} concurrent across ${clientPool.length} key(s), ${chunkDelayMs}ms delay)...`);
+  } else {
+    await logger.log(`Planning ${chunks.length} chunks (${chunkSize} segments per chunk, ${chunkConcurrency} concurrent)...`);
+  }
+
+  let fundedKeyIdx: number | null = null;
 
   const chunkPlans: ScenePlan[] = [];
   for (let batchStart = 0; batchStart < chunks.length; batchStart += chunkConcurrency) {
     const batch = chunks.slice(batchStart, batchStart + chunkConcurrency);
     const results = await Promise.allSettled(
       batch.map(async (chunk, batchIdx) => {
+        if (isFreeModel && batchIdx > 0) await new Promise(r => setTimeout(r, 500));
         const chunkIdx = batchStart + batchIdx;
         const globalOffset = chunk[0].startTime;
         const chunkEnd = chunk[chunk.length - 1].endTime;
 
-        await logger.log(`Chunk ${chunkIdx + 1}/${chunks.length}: segments ${globalOffset.toFixed(1)}s → ${chunkEnd.toFixed(1)}s`);
+        if (isFreeModel) {
+          await logger.log(`Chunk ${chunkIdx + 1}/${chunks.length}: segments ${globalOffset.toFixed(1)}s → ${chunkEnd.toFixed(1)}s (key ${(chunkIdx % clientPool.length) + 1}/${clientPool.length})`);
+        } else {
+          await logger.log(`Chunk ${chunkIdx + 1}/${chunks.length}: segments ${globalOffset.toFixed(1)}s → ${chunkEnd.toFixed(1)}s`);
+        }
 
         const segmentLines = chunk
           .map((s, i) => `SEGMENT ${i + 1} [${s.startTime.toFixed(2)}s → ${s.endTime.toFixed(2)}s]: ${s.text}`)
@@ -357,14 +373,22 @@ FPS: ${config.fps}
 
 Generate a complete scene plan as JSON for these segments only. Beats MUST cover [${globalOffset.toFixed(2)}s, ${chunkEnd.toFixed(2)}s] with no gaps.`;
 
+        const ccRetries = isFreeModel ? 2 : Math.max(8, clientPool.length + 2);
+        const maxAttempts = isFreeModel ? clientPool.length * 2 : Math.max(3, clientPool.length + 2);
         let attempts = 0;
-        const maxAttempts = 3;
         while (attempts < maxAttempts) {
           attempts++;
-          const raw = await chatCompletion(client, config.scenePlannerModel, systemPrompt, userPrompt, 15,
-            (a, m, err) => logger.log(`Chunk ${chunkIdx + 1} retry (${a}/${m}): ${err}`)
-          );
+          let retryClient: import("openai").default;
+          if (!isFreeModel && fundedKeyIdx !== null) {
+            retryClient = clientPool[fundedKeyIdx];
+          } else {
+            retryClient = clientPool[(chunkIdx + attempts - 1) % clientPool.length];
+          }
+          const keyIdx = (chunkIdx + attempts - 1) % clientPool.length;
           try {
+            const raw = await chatCompletion(retryClient, config.scenePlannerModel, systemPrompt, userPrompt, ccRetries,
+              (a, m, err) => logger.log(`Chunk ${chunkIdx + 1} retry (${a}/${m}): ${err}`)
+            );
             const plan = JSON.parse(raw) as ScenePlan;
             plan.totalDurationSeconds = chunkEnd - globalOffset;
             plan.beats = plan.beats.filter(b => b.duration > 0);
@@ -372,9 +396,15 @@ Generate a complete scene plan as JSON for these segments only. Beats MUST cover
               if (!b.id) b.id = `chunk${chunkIdx}_beat_${plan.beats.indexOf(b) + 1}`;
             }
             validateScenePlan(plan, config.forbiddenWords, config.genericFallbacks);
+            if (!isFreeModel && fundedKeyIdx === null) fundedKeyIdx = keyIdx;
             return plan;
           } catch (err: any) {
-            await logger.warn(`Chunk ${chunkIdx + 1} invalid (attempt ${attempts}/${maxAttempts}): ${err.message}`);
+            const is402 = err?.status === 402 || err?.status === 403 || (err?.message || "").includes("402") || (err?.message || "").includes("403");
+            if (!isFreeModel && is402) {
+              await logger.log(`Chunk ${chunkIdx + 1}: key ${keyIdx + 1} unfunded, trying next...`);
+            } else {
+              await logger.warn(`Chunk ${chunkIdx + 1} invalid (attempt ${attempts}/${maxAttempts}): ${err.message}`);
+            }
             if (attempts >= maxAttempts) {
               await logger.warn(`Chunk ${chunkIdx + 1} failed — generating fallback beats`);
               return generateFallbackChunkPlan(chunk, chunkIdx);
@@ -424,6 +454,7 @@ Generate a complete scene plan as JSON for these segments only. Beats MUST cover
   }
   await enforceBodyDurations(plan, config.hookDuration, config.bodyClipMin, config.bodyClipMax, logger);
   enforceBeatDistribution(plan, config.clipPercent, config.imagePercent, config.hookDuration, logger);
+  scaleToAudioDuration(plan, voDurationSeconds, logger);
 
   await logger.log(
     `Chunked plan complete: ${plan.beats.length} beats (${countByType(plan, "clip")} clips, ${countByType(plan, "image")} images, ${countWithOverlay(plan)} with overlays) from ${chunks.length} chunks`
@@ -456,7 +487,27 @@ function countByType(plan: ScenePlan, type: string): number {
 }
 
 function countWithOverlay(plan: ScenePlan): number {
-  return plan.beats.filter(b => b.overlay).length;
+	return plan.beats.filter(b => b.overlay).length;
+}
+
+function scaleToAudioDuration(plan: ScenePlan, voDurationSeconds: number, logger: { log: (msg: string) => Promise<void> }): void {
+	if (!voDurationSeconds || plan.totalDurationSeconds === voDurationSeconds) return;
+	const diff = voDurationSeconds - plan.totalDurationSeconds;
+	if (Math.abs(diff) < 0.5) {
+		plan.beats[plan.beats.length - 1].duration += diff;
+	} else {
+		const scale = voDurationSeconds / plan.totalDurationSeconds;
+		for (const beat of plan.beats) {
+			beat.duration = beat.duration * scale;
+		}
+	}
+	let t = 0;
+	for (const beat of plan.beats) {
+		beat.startTime = t;
+		t += beat.duration;
+	}
+	plan.totalDurationSeconds = voDurationSeconds;
+	logger.log(`Scaled plan to audio duration: ${voDurationSeconds.toFixed(1)}s (adjusted ${diff >= 0 ? "+" : ""}${diff.toFixed(1)}s)`);
 }
 
 const IMAGE_ANIMATIONS = [
@@ -741,11 +792,22 @@ function validateScenePlan(plan: ScenePlan, forbiddenWords: string[], genericFal
       throw new Error(`Beat ${beat.id} has invalid duration`);
     }
 
-    if (beat.type === "clip" && !beat.searchQuery) {
-      throw new Error(`Clip beat ${beat.id} missing searchQuery`);
+    if (!beat.searchQuery) {
+      const neighbors = [
+        plan.beats[i - 1]?.searchQuery,
+        plan.beats[i + 1]?.searchQuery,
+      ].filter((q: string | undefined) => !!q);
+      beat.searchQuery = neighbors[0] ?? genericFallbacks[Math.floor(Math.random() * genericFallbacks.length)];
+      console.log(`Auto-filled missing searchQuery for ${beat.type} beat ${beat.id} with '${beat.searchQuery}'`);
     }
-    if (beat.type === "image" && !beat.searchQuery) {
-      throw new Error(`Image beat ${beat.id} missing searchQuery`);
+    if (beat.searchQuery && IMAGE_ANIMATIONS.includes(beat.searchQuery)) {
+      const neighbors = [
+        plan.beats[i - 1]?.searchQuery,
+        plan.beats[i + 1]?.searchQuery,
+      ].filter((q: string | undefined) => !!q && !IMAGE_ANIMATIONS.includes(q!));
+      const original = beat.searchQuery;
+      beat.searchQuery = neighbors[0] ?? genericFallbacks[Math.floor(Math.random() * genericFallbacks.length)];
+      console.log(`Replaced animation-as-query '${original}' for ${beat.id} with '${beat.searchQuery}'`);
     }
     if (beat.searchQuery) {
       const lower = beat.searchQuery.toLowerCase().trim();
@@ -768,9 +830,16 @@ function validateScenePlan(plan: ScenePlan, forbiddenWords: string[], genericFal
   const totalDuration = plan.beats.reduce((sum, b) => sum + b.duration, 0);
   const expectedDuration = plan.totalDurationSeconds;
   if (Math.abs(totalDuration - expectedDuration) > 5) {
-    throw new Error(
-      `Beat durations (${totalDuration}s) don't match total (${expectedDuration}s)`
-    );
+    const scale = expectedDuration / totalDuration;
+    for (const beat of plan.beats) {
+      beat.duration = Math.max(0.5, beat.duration * scale);
+    }
+    const newTotal = plan.beats.reduce((sum, b) => sum + b.duration, 0);
+    if (Math.abs(newTotal - expectedDuration) > 5) {
+      throw new Error(
+        `Beat durations (${totalDuration}s) don't match total (${expectedDuration}s) even after scaling`
+      );
+    }
   }
 }
 

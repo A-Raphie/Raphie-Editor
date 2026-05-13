@@ -1,11 +1,14 @@
 import OpenAI from "openai";
-import type { Config } from "../config.js";
 
-export function createOpenRouterClient(config: Config): OpenAI {
+export function createOpenRouterClient(apiKey: string): OpenAI {
   return new OpenAI({
     baseURL: "https://openrouter.ai/api/v1",
-    apiKey: config.openrouterApiKey,
+    apiKey,
   });
+}
+
+export function createClientPool(apiKeys: string[]): OpenAI[] {
+  return apiKeys.map(key => createOpenRouterClient(key));
 }
 
 function sanitizeJsonResponse(raw: string): string {

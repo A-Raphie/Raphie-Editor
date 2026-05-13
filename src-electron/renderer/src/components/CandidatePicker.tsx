@@ -44,7 +44,7 @@ export default function CandidatePicker({ candidates, selectedIndex, onSelect, o
 					{isDownloading ? "Downloading..." : hasAsset ? "Downloaded" : "Download This"}
 				</button>
 			</div>
-			<div className="grid grid-cols-4 gap-2">
+			<div className="grid grid-cols-5 gap-2">
 				{candidates.map((candidate, i) => {
 					const isSelected = i === selectedIndex;
 					const isClip = candidate.type === "clip";

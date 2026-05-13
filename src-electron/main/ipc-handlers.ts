@@ -101,10 +101,12 @@ Bad queries (nothing on stock sites): "agricultural innovation sustainable farmi
 - VARY your queries: use different angles, close-ups, stages, and perspectives even for the same subject`;
 
 const DEFAULT_SETTINGS: AppSettings = {
-  openrouterApiKey: "",
+  openrouterApiKeys: [],
   scenePlannerModel: "deepseek/deepseek-v4-flash",
   qualityCheckerModel: "google/gemma-3-4b-it",
   concurrency: 4,
+  previewConcurrency: 10,
+  renderConcurrency: 3,
   fps: 30,
   downloadResolution: 1080,
   downloadTimeout: 90,
@@ -160,6 +162,7 @@ RULES:
 function buildConfigOverrides(settings: AppSettings, projectId?: string, args?: any) {
   const previewRes = args?.previewResolution ?? settings.previewResolution ?? 1080;
   return {
+    openrouterApiKeys: settings.openrouterApiKeys ?? [],
     scenePlannerModel: settings.scenePlannerModel,
     qualityCheckerModel: settings.qualityCheckerModel,
     pexelsApiKey: settings.pexelsApiKey ?? "",
@@ -167,6 +170,8 @@ function buildConfigOverrides(settings: AppSettings, projectId?: string, args?: 
     clipPercent: settings.clipPercent ?? 70,
     imagePercent: settings.imagePercent ?? 30,
     concurrency: settings.concurrency,
+    previewConcurrency: settings.previewConcurrency ?? 10,
+    renderConcurrency: settings.renderConcurrency ?? 3,
     fps: settings.fps,
     downloadResolution: settings.downloadResolution,
     downloadTimeout: (settings.downloadTimeout ?? 90) * 1000,
@@ -225,6 +230,33 @@ export function registerIpcHandlers(win: BrowserWindow): void {
     return true;
   });
 
+  ipcMain.handle(IPC_CHANNELS.GET_MODEL_UPTIME, async (_, model: string) => {
+    try {
+      const settings = loadSettings();
+      const apiKey = settings.openrouterApiKeys?.[0];
+      if (!apiKey) return null;
+      const [author, slug] = model.split("/");
+      const resp = await fetch(`https://openrouter.ai/api/v1/models/${author}/${slug}/endpoints`, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+      });
+      if (!resp.ok) return null;
+      const json = await resp.json();
+      const endpoints = json?.data?.endpoints;
+      if (!endpoints || endpoints.length === 0) return null;
+      let bestUptime: number | null = null;
+      for (const ep of endpoints) {
+        if (typeof ep.uptime_last_5m === "number") {
+          if (bestUptime === null || ep.uptime_last_5m > bestUptime) {
+            bestUptime = ep.uptime_last_5m;
+          }
+        }
+      }
+      return bestUptime;
+    } catch {
+      return null;
+    }
+  });
+
   ipcMain.handle(IPC_CHANNELS.SELECT_FILES, async (_, options: { filters?: any[]; multiple?: boolean }) => {
     const result = await dialog.showOpenDialog(win, {
       properties: [options.multiple ? "multiSelections" : "openFile", "openFile"],
@@ -244,7 +276,7 @@ export function registerIpcHandlers(win: BrowserWindow): void {
       ensureProjectDirs(projectId);
 
       const settings = loadSettings();
-      process.env.OPENROUTER_API_KEY = settings.openrouterApiKey;
+      process.env.OPENROUTER_API_KEY = settings.openrouterApiKeys?.[0] ?? "";
 
       const config = createConfig(buildConfigOverrides(settings, projectId));
 
@@ -300,7 +332,7 @@ export function registerIpcHandlers(win: BrowserWindow): void {
       ensureProjectDirs();
 
       const settings = loadSettings();
-      process.env.OPENROUTER_API_KEY = settings.openrouterApiKey;
+      process.env.OPENROUTER_API_KEY = settings.openrouterApiKeys?.[0] ?? "";
 
       const pipeline = new Pipeline(createConfig(buildConfigOverrides(settings, args.projectId, args)));
       activePipeline = pipeline;
@@ -361,7 +393,7 @@ export function registerIpcHandlers(win: BrowserWindow): void {
     ensureProjectDirs(projectId);
 
     const settings = loadSettings();
-    process.env.OPENROUTER_API_KEY = settings.openrouterApiKey;
+    process.env.OPENROUTER_API_KEY = settings.openrouterApiKeys?.[0] ?? "";
 
     const config = createConfig(buildConfigOverrides(settings, projectId));
 
@@ -437,7 +469,7 @@ export function registerIpcHandlers(win: BrowserWindow): void {
       ensureProjectDirs(projectId);
 
       const settings = loadSettings();
-      process.env.OPENROUTER_API_KEY = settings.openrouterApiKey;
+      process.env.OPENROUTER_API_KEY = settings.openrouterApiKeys?.[0] ?? "";
 
       const config = createConfig(buildConfigOverrides(settings, projectId, { previewResolution }));
       setBinPaths(config.ffprobePath);
@@ -543,7 +575,7 @@ export function registerIpcHandlers(win: BrowserWindow): void {
     ensureProjectDirs(projectId);
 
     const settings = loadSettings();
-    process.env.OPENROUTER_API_KEY = settings.openrouterApiKey;
+    process.env.OPENROUTER_API_KEY = settings.openrouterApiKeys?.[0] ?? "";
 
     const config = createConfig(buildConfigOverrides(settings, projectId));
     setBinPaths(config.ffprobePath);
@@ -862,7 +894,7 @@ export function registerIpcHandlers(win: BrowserWindow): void {
     IPC_CHANNELS.SEARCH_BEAT_CANDIDATES,
     async (_, beatId: string, searchQuery: string, beatType: string, projectId: string) => {
       const settings = loadSettings();
-      process.env.OPENROUTER_API_KEY = settings.openrouterApiKey;
+      process.env.OPENROUTER_API_KEY = settings.openrouterApiKeys?.[0] ?? "";
 
       const {
         searchAllVideoCandidates,
@@ -952,7 +984,7 @@ export function registerIpcHandlers(win: BrowserWindow): void {
       ensureProjectDirs(projectId);
 
       const settings = loadSettings();
-      process.env.OPENROUTER_API_KEY = settings.openrouterApiKey;
+      process.env.OPENROUTER_API_KEY = settings.openrouterApiKeys?.[0] ?? "";
 
       const config = createConfig(buildConfigOverrides(settings, projectId));
 
@@ -1007,15 +1039,17 @@ export function registerIpcHandlers(win: BrowserWindow): void {
         }
 
         const statePath = path.join(getOutputDir(projectId), "pipeline_state.json");
-        if (fs.existsSync(statePath)) {
-          try {
-            const state = JSON.parse(fs.readFileSync(statePath, "utf-8"));
-            state.assets[beatId] = finalPath;
-            if (!state.qualityCheckResults) state.qualityCheckResults = {};
-            state.qualityCheckResults[beatId] = { accepted: true };
-            fs.writeFileSync(statePath, JSON.stringify(state, null, 2));
-          } catch {}
-        }
+        try {
+          let state: any = {};
+          if (fs.existsSync(statePath)) {
+            state = JSON.parse(fs.readFileSync(statePath, "utf-8"));
+          }
+          if (!state.assets) state.assets = {};
+          if (!state.qualityCheckResults) state.qualityCheckResults = {};
+          state.assets[beatId] = finalPath;
+          state.qualityCheckResults[beatId] = { accepted: true };
+          fs.writeFileSync(statePath, JSON.stringify(state, null, 2));
+        } catch {}
 
         const thumbsDir = path.join(getOutputDir(projectId), "thumbs");
         if (!fs.existsSync(thumbsDir)) fs.mkdirSync(thumbsDir, { recursive: true });
@@ -1297,7 +1331,7 @@ export function registerIpcHandlers(win: BrowserWindow): void {
       ensureProjectDirs(projectId);
 
       const settings = loadSettings();
-      process.env.OPENROUTER_API_KEY = settings.openrouterApiKey;
+      process.env.OPENROUTER_API_KEY = settings.openrouterApiKeys?.[0] ?? "";
 
       const config = createConfig(buildConfigOverrides(settings, projectId));
 
@@ -1454,7 +1488,22 @@ export function registerIpcHandlers(win: BrowserWindow): void {
         const assetPath = assets[beat.id];
         const qualityResult = qualityCheckResults[beat.id];
 
-        if (!assetPath || !fs.existsSync(assetPath)) {
+        let resolvedPath = assetPath;
+        if (!resolvedPath || !fs.existsSync(resolvedPath)) {
+          const clipsDir = getClipsDir(projectId);
+          const imagesDir = getImagesDir(projectId);
+          const beatType = beat.type === "clip" ? "clip" : "image";
+          const ext = beatType === "clip" ? ".mp4" : ".jpg";
+          for (const dir of [clipsDir, imagesDir]) {
+            const candidate = path.join(dir, `${beat.id}${ext}`);
+            if (fs.existsSync(candidate)) {
+              resolvedPath = candidate;
+              break;
+            }
+          }
+        }
+
+        if (!resolvedPath || !fs.existsSync(resolvedPath)) {
           results[beat.id] = {
             valid: false,
             reason: "missing",
@@ -1465,7 +1514,7 @@ export function registerIpcHandlers(win: BrowserWindow): void {
           continue;
         }
 
-        const ext = path.extname(assetPath).toLowerCase();
+        const ext = path.extname(resolvedPath).toLowerCase();
 
         try {
           if (ext === ".mp4" || ext === ".webm" || ext === ".mov") {
@@ -1478,7 +1527,7 @@ export function registerIpcHandlers(win: BrowserWindow): void {
                 "format=duration:stream=codec_type,stream=codec_name",
                 "-of",
                 "json",
-                assetPath,
+                resolvedPath,
               ],
               { timeout: 30000 }
             );
@@ -1515,7 +1564,7 @@ export function registerIpcHandlers(win: BrowserWindow): void {
           } else if (
             [".jpg", ".jpeg", ".png", ".webp", ".gif"].includes(ext)
           ) {
-            if (fs.statSync(assetPath).size < 1000) {
+            if (fs.statSync(resolvedPath).size < 1000) {
               results[beat.id] = {
                 valid: false,
                 reason: "corrupt",
@@ -1564,6 +1613,51 @@ export function registerIpcHandlers(win: BrowserWindow): void {
   );
 
   ipcMain.handle(
+    IPC_CHANNELS.RECOVER_ASSETS,
+    async (_, beats: any[], projectId: string) => {
+      const outputDir = getOutputDir(projectId);
+      const clipsDir = getClipsDir(projectId);
+      const imagesDir = getImagesDir(projectId);
+      const statePath = path.join(outputDir, "pipeline_state.json");
+
+      const recovered: Record<string, string> = {};
+      const beatIds = new Set(beats.map((b: any) => b.id));
+
+      for (const dir of [clipsDir, imagesDir]) {
+        if (!fs.existsSync(dir)) continue;
+        const files = fs.readdirSync(dir);
+        for (const file of files) {
+          const beatId = path.basename(file, path.extname(file));
+          if (!beatIds.has(beatId)) continue;
+          const fullPath = path.join(dir, file);
+          if (fs.statSync(fullPath).size < 1000) continue;
+          recovered[beatId] = fullPath;
+        }
+      }
+
+      if (Object.keys(recovered).length > 0) {
+        try {
+          let state: any = {};
+          if (fs.existsSync(statePath)) {
+            state = JSON.parse(fs.readFileSync(statePath, "utf-8"));
+          }
+          if (!state.assets) state.assets = {};
+          if (!state.qualityCheckResults) state.qualityCheckResults = {};
+          for (const [beatId, assetPath] of Object.entries(recovered)) {
+            if (!state.assets[beatId]) {
+              state.assets[beatId] = assetPath;
+              state.qualityCheckResults[beatId] = { accepted: true };
+            }
+          }
+          fs.writeFileSync(statePath, JSON.stringify(state, null, 2));
+        } catch {}
+      }
+
+      return recovered;
+    }
+  );
+
+  ipcMain.handle(
     IPC_CHANNELS.UPDATE_PIPELINE_STATUS,
     async (_, projectId: string, status: string) => {
       const outputDir = getOutputDir(projectId);
@@ -1601,6 +1695,7 @@ const VALID_PLANNER_MODELS = [
   "anthropic/claude-haiku-4.5",
   "deepseek/deepseek-v4-flash",
   "qwen/qwen3-235b-a22b-2507",
+  "google/gemma-3-4b-it",
   "openrouter/owl-alpha",
 ];
 
@@ -1629,6 +1724,13 @@ function loadSettings(): AppSettings {
   }
 
   let migrated = false;
+
+  const oldKey = (settings as any).openrouterApiKey;
+  if (typeof oldKey === "string" && oldKey.length > 0 && (!settings.openrouterApiKeys || settings.openrouterApiKeys.length === 0)) {
+    settings.openrouterApiKeys = [oldKey];
+    delete (settings as any).openrouterApiKey;
+    migrated = true;
+  }
 
   if (!VALID_PLANNER_MODELS.includes(settings.scenePlannerModel)) {
     settings.scenePlannerModel =
