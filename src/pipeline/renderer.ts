@@ -11,6 +11,31 @@ import { ensureBrowser, renderMedia, selectComposition, combineChunks } from "@r
 
 const execFileAsync = promisify(execFile);
 
+function cleanStaleRemotionTempDirs(logger: Logger): void {
+  const tmpDir = os.tmpdir();
+  try {
+    const entries = fs.readdirSync(tmpDir);
+    const prefixes = ["remotion-webpack-bundle-", "react-motion-render", "ffmpeg-render-"];
+    let cleaned = 0;
+    for (const entry of entries) {
+      if (prefixes.some((p) => entry.startsWith(p))) {
+        try {
+          const fullPath = path.join(tmpDir, entry);
+          const stat = fs.statSync(fullPath);
+          const ageMs = Date.now() - stat.mtimeMs;
+          if (ageMs > 24 * 60 * 60 * 1000) {
+            fs.rmSync(fullPath, { recursive: true, force: true });
+            cleaned++;
+          }
+        } catch {}
+      }
+    }
+    if (cleaned > 0) {
+      logger.log(`Cleaned ${cleaned} stale temp dir(s)`);
+    }
+  } catch {}
+}
+
 const DUMMY_ICO = Buffer.from([
   0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00,
   0x18, 0x00, 0x30, 0x00, 0x00, 0x00, 0x16, 0x00, 0x00, 0x00, 0x28, 0x00,
@@ -222,6 +247,8 @@ export async function renderVideoSegments(
   callbacks?: SegmentRenderCallbacks
 ): Promise<{ outputPath: string; segmentState: RenderSegmentState }> {
   const outputPath = path.join(config.outputDir, `${scenePlan.title.replace(/\s+/g, "_")}.mp4`);
+
+  cleanStaleRemotionTempDirs(logger);
 
   const segmentLength = config.segmentLength ?? 900;
 

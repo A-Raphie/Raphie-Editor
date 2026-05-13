@@ -157,6 +157,7 @@ RULES:
   maxThumbnailsPerQuery: 5,
   cleanupAfterDays: 0,
   enableQualityCheckOnPreview: true,
+  renderer: "remotion",
 };
 
 function buildConfigOverrides(settings: AppSettings, projectId?: string, args?: any) {
@@ -213,6 +214,7 @@ function buildConfigOverrides(settings: AppSettings, projectId?: string, args?: 
     previewResolution: previewRes,
     srtChunkSize: settings.srtChunkSize ?? 25,
     srtChunkDelayMs: settings.srtChunkDelayMs ?? 0,
+    renderer: settings.renderer ?? "remotion",
   };
 }
 

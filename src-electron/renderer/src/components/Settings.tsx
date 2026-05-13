@@ -130,12 +130,21 @@ export default function Settings({ settings, onSave, onClose }: SettingsProps) {
 								</div>
 								<div className="grid grid-cols-2 gap-4">
 									<div>
+										<label className={labelCls}>Renderer</label>
+										<select value={form.renderer ?? "remotion"} onChange={(e) => setForm({ ...form, renderer: e.target.value as "remotion" | "ffmpeg" })} className={inputCls}>
+											<option value="remotion">Remotion (Chrome)</option>
+											<option value="ffmpeg">FFmpeg (Fast)</option>
+										</select>
+									</div>
+									<div>
 										<label className={labelCls}>Video Codec</label>
 										<select value={form.videoCodec ?? "h265"} onChange={(e) => setForm({ ...form, videoCodec: e.target.value })} className={inputCls}>
 											<option value="h265">H.265 (HEVC, smaller)</option>
 											<option value="h264">H.264 (more compatible)</option>
 										</select>
 									</div>
+								</div>
+								<div className="grid grid-cols-2 gap-4">
 									<div>
 										<label className={labelCls}>Segment Length</label>
 										<select value={form.segmentLength ?? 900} onChange={(e) => setForm({ ...form, segmentLength: parseInt(e.target.value) })} className={inputCls}>

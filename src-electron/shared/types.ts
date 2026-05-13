@@ -109,6 +109,7 @@ export interface AppSettings {
   cleanupAfterDays?: number;
   parallelSegments: number;
   previewResolution: number;
+  renderer?: "remotion" | "ffmpeg";
   enableQualityCheckOnPreview?: boolean;
   srtChunkSize?: number;
   srtChunkDelayMs?: number;

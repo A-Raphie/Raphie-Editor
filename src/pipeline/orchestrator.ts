@@ -9,6 +9,7 @@ import { planScenes, planScenesFromSrt, addSubscribeOverlays } from "./scenePlan
 import { sourceAllAssets } from "./assetSourcer.js";
 import { qualityCheckAssets } from "./qualityChecker.js";
 import { renderVideoSegments } from "./renderer.js";
+import { renderVideoSegmentsFFmpeg } from "./ffmpeg-renderer.js";
 import type { RenderSegmentState } from "../types/scenePlan.js";
 import { ensureDir, deleteFile, cleanDir } from "../utils/fileManager.js";
 import { getAudioDuration, setBinPaths as setStockBinPaths } from "../utils/stockApi.js";
@@ -446,7 +447,12 @@ export class Pipeline {
     let segmentDir = existingState?.segmentDir ?? "";
 
     const parallelSegments = this.config.parallelSegments ?? 1;
-    const { outputPath } = await renderVideoSegments(
+    const useFFmpeg = (this.config as any).renderer === "ffmpeg";
+
+    const renderFn = useFFmpeg ? renderVideoSegmentsFFmpeg : renderVideoSegments;
+    const rendererLabel = useFFmpeg ? "FFmpeg" : "Remotion";
+
+    const { outputPath } = await renderFn(
       scenePlan,
       assets,
       this.config,
