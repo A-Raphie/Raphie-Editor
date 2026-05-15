@@ -110,7 +110,7 @@ export default function Settings({ settings, onSave, onClose }: SettingsProps) {
 										</div>
 										<div>
 											<label className="block text-[10px] text-zinc-500 mb-1">Frame</label>
-											<input type="number" min={1} max={8} value={form.renderConcurrency ?? 3} onChange={(e) => setForm({ ...form, renderConcurrency: Math.min(8, Math.max(1, parseInt(e.target.value) || 3)) })} className={inputCls} />
+											<input type="number" min={1} max={12} value={form.renderConcurrency ?? 3} onChange={(e) => setForm({ ...form, renderConcurrency: Math.min(12, Math.max(1, parseInt(e.target.value) || 3)) })} className={inputCls} />
 										</div>
 										<div>
 											<label className={labelCls}>FPS</label>
@@ -120,12 +120,6 @@ export default function Settings({ settings, onSave, onClose }: SettingsProps) {
 												<option value={60}>60 fps</option>
 											</select>
 										</div>
-									</div>
-								</div>
-								<div className="grid grid-cols-2 gap-4">
-									<div>
-										<label className={labelCls}>Timeout (sec)</label>
-										<input type="number" min={30} max={300} value={form.downloadTimeout ?? 90} onChange={(e) => setForm({ ...form, downloadTimeout: parseInt(e.target.value) || 90 })} className={inputCls} />
 									</div>
 								</div>
 								<div className="grid grid-cols-2 gap-4">

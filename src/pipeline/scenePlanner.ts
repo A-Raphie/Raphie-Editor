@@ -510,7 +510,7 @@ function scaleToAudioDuration(plan: ScenePlan, voDurationSeconds: number, logger
 	logger.log(`Scaled plan to audio duration: ${voDurationSeconds.toFixed(1)}s (adjusted ${diff >= 0 ? "+" : ""}${diff.toFixed(1)}s)`);
 }
 
-const IMAGE_ANIMATIONS = [
+const IMAGE_ANIMATIONS: import("../types/scenePlan.js").ImageAnimation[] = [
   "zoom_in",
   "zoom_out",
   "pan_lr",
@@ -518,6 +518,16 @@ const IMAGE_ANIMATIONS = [
   "pan_tb",
   "pan_bt",
   "drift",
+  "zoom_in_tl",
+  "zoom_in_tr",
+  "zoom_in_bl",
+  "zoom_in_br",
+  "zoom_out_tl",
+  "zoom_out_tr",
+  "zoom_out_bl",
+  "zoom_out_br",
+  "dramatic_in",
+  "dramatic_out",
 ];
 
 const SPLIT_MODIFIERS = [
@@ -800,11 +810,11 @@ function validateScenePlan(plan: ScenePlan, forbiddenWords: string[], genericFal
       beat.searchQuery = neighbors[0] ?? genericFallbacks[Math.floor(Math.random() * genericFallbacks.length)];
       console.log(`Auto-filled missing searchQuery for ${beat.type} beat ${beat.id} with '${beat.searchQuery}'`);
     }
-    if (beat.searchQuery && IMAGE_ANIMATIONS.includes(beat.searchQuery)) {
+    if (beat.searchQuery && (IMAGE_ANIMATIONS as readonly string[]).includes(beat.searchQuery)) {
       const neighbors = [
         plan.beats[i - 1]?.searchQuery,
         plan.beats[i + 1]?.searchQuery,
-      ].filter((q: string | undefined) => !!q && !IMAGE_ANIMATIONS.includes(q!));
+      ].filter((q: string | undefined) => !!q && !(IMAGE_ANIMATIONS as readonly string[]).includes(q!));
       const original = beat.searchQuery;
       beat.searchQuery = neighbors[0] ?? genericFallbacks[Math.floor(Math.random() * genericFallbacks.length)];
       console.log(`Replaced animation-as-query '${original}' for ${beat.id} with '${beat.searchQuery}'`);

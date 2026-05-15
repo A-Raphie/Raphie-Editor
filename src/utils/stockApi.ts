@@ -87,7 +87,7 @@ async function httpGet(url: string, headers: Record<string, string> = {}): Promi
 
 export type DownloadProgressCb = (percent: number, downloadedMB: string, totalMB: string) => void;
 
-async function downloadFile(url: string, outputPath: string, onProgress?: DownloadProgressCb, timeoutMs = 60_000, signal?: AbortSignal): Promise<void> {
+async function downloadSingle(url: string, outputPath: string, onProgress?: DownloadProgressCb, timeoutMs = 0, signal?: AbortSignal): Promise<void> {
   const dir = path.dirname(outputPath);
   await fs.mkdir(dir, { recursive: true });
   if (signal?.aborted) throw new Error("Download aborted");
@@ -101,7 +101,7 @@ async function downloadFile(url: string, outputPath: string, onProgress?: Downlo
       fs.unlink(outputPath).catch(() => {});
     };
     if (signal) signal.addEventListener("abort", abortHandler);
-    const req = mod.get(url, { timeout: timeoutMs }, (res) => {
+    const req = mod.get(url, { timeout: timeoutMs || undefined }, (res) => {
       if (signal?.aborted) {
         file.close();
         fs.unlink(outputPath).catch(() => {});
@@ -116,7 +116,7 @@ async function downloadFile(url: string, outputPath: string, onProgress?: Downlo
       }
       if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         file.close();
-        downloadFile(res.headers.location, outputPath, onProgress, timeoutMs, signal).then(resolve, reject);
+        downloadSingle(res.headers.location, outputPath, onProgress, timeoutMs, signal).then(resolve, reject);
         return;
       }
       const totalBytes = parseInt(res.headers["content-length"] || "0", 10);
@@ -158,6 +158,21 @@ async function downloadFile(url: string, outputPath: string, onProgress?: Downlo
       reject(new Error("Download timeout"));
     });
   });
+}
+
+async function downloadFile(url: string, outputPath: string, onProgress?: DownloadProgressCb, timeoutMs = 0, signal?: AbortSignal): Promise<void> {
+  const maxAttempts = 5;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await downloadSingle(url, outputPath, onProgress, timeoutMs, signal);
+      return;
+    } catch (err: any) {
+      if (signal?.aborted) throw err;
+      if (attempt === maxAttempts) throw err;
+      const delay = Math.pow(2, attempt - 1) * 1000;
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
 }
 
 function fmtMB(bytes: number): string {

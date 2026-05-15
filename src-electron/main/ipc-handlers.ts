@@ -109,7 +109,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   renderConcurrency: 3,
   fps: 30,
   downloadResolution: 1080,
-  downloadTimeout: 90,
+  downloadTimeout: 0,
   qualityCheckPrompt: DEFAULT_QUALITY_PROMPT,
   scenePlannerRules: DEFAULT_PLANNER_RULES,
   searchQueryRules: DEFAULT_SEARCH_QUERY_RULES,
@@ -176,7 +176,7 @@ function buildConfigOverrides(settings: AppSettings, projectId?: string, args?: 
     renderConcurrency: settings.renderConcurrency ?? 3,
     fps: settings.fps,
     downloadResolution: settings.downloadResolution,
-    downloadTimeout: (settings.downloadTimeout ?? 90) * 1000,
+    downloadTimeout: (settings.downloadTimeout ?? 0) * 1000,
     outputDir: getOutputDir(projectId),
     tempDir: getTempDir(projectId),
     clipsDir: getClipsDir(projectId),
@@ -520,6 +520,11 @@ export function registerIpcHandlers(win: BrowserWindow): void {
         } catch {}
       }
 
+      if (activePipeline) {
+        activePipeline.cancel();
+        activePipeline = null;
+      }
+
       const pipeline = new Pipeline(config);
       activePipeline = pipeline;
 
@@ -547,13 +552,20 @@ export function registerIpcHandlers(win: BrowserWindow): void {
       try {
         let outputPath;
         if (hasExistingAssets && mode === "continue") {
-          outputPath = await pipeline.renderOnly();
+          outputPath = await pipeline.renderOnly(voPath, musicPath);
         } else if (hasExistingAssets && mode === "render") {
-          outputPath = await pipeline.renderNew();
+          outputPath = await pipeline.renderNew(voPath, musicPath);
         } else if (hasExistingAssets) {
-          outputPath = await pipeline.renderNew();
+          outputPath = await pipeline.renderNew(voPath, musicPath);
         } else {
           outputPath = await pipeline.run(scriptPath, voPath, musicPath, undefined, srtPath);
+        }
+
+        if (!outputPath) {
+          if (!win.isDestroyed()) {
+            win.webContents.send(IPC_CHANNELS.PIPELINE_COMPLETE, "");
+          }
+          return "";
         }
 
         if (!win.isDestroyed()) {
@@ -1176,6 +1188,18 @@ export function registerIpcHandlers(win: BrowserWindow): void {
 
       try {
         const data = JSON.parse(fs.readFileSync(statePath, "utf-8"));
+        let elapsedMs = data.renderSegments?.elapsedMs ?? 0;
+        let sessionTimes: number[] = data.renderSegments?.sessionTimes ?? [];
+        if (!elapsedMs && data.renderSegments?.segmentDir) {
+          try {
+            const manifestPath = path.join(data.renderSegments.segmentDir, "render_manifest.json");
+            if (fs.existsSync(manifestPath)) {
+              const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
+              elapsedMs = manifest.elapsedMs ?? 0;
+              sessionTimes = manifest.sessionTimes ?? [];
+            }
+          } catch {}
+        }
         return {
           status: data.status,
           currentStep: data.currentStep,
@@ -1187,6 +1211,8 @@ export function registerIpcHandlers(win: BrowserWindow): void {
             ? {
                 completed: data.renderSegments.completedSegments?.length ?? 0,
                 total: data.renderSegments.totalSegments ?? 0,
+                elapsedMs,
+                sessionTimes,
               }
             : null,
           outputPath: data.outputPath,

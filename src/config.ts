@@ -98,7 +98,7 @@ export function createConfig(overrides: Partial<Config> = {}): Config {
     renderConcurrency: (overrides as any).renderConcurrency ?? 3,
     fps: overrides.fps ?? 30,
     downloadResolution: overrides.downloadResolution ?? 2160,
-    downloadTimeout: overrides.downloadTimeout ?? 90_000,
+    downloadTimeout: overrides.downloadTimeout ?? 0,
     maxRetries: 5,
     logDir: "output/logs",
     outputDir: "output",

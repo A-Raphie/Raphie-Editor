@@ -56,6 +56,17 @@ function translateError(raw: string): ErrorInfo {
 	return { title: "Error", message: raw.length > 200 ? raw.slice(0, 200) + "..." : raw };
 }
 
+function fmtElapsed(ms: number): string {
+	const totalSec = Math.floor(ms / 1000);
+	const h = Math.floor(totalSec / 3600);
+	const m = Math.floor((totalSec % 3600) / 60);
+	const s = totalSec % 60;
+	if (h > 0) return `${h}h ${m}m ${s}s`;
+	if (m > 0) return `${m}m ${s}s`;
+	if (totalSec > 0) return `${totalSec}.${Math.floor((ms % 1000) / 100)}s`;
+	return "0s";
+}
+
 export default function App() {
 	const [settings, setSettings] = useState<AppSettings | null>(null);
 	const [view, setView] = useState<string>("input");
@@ -73,6 +84,11 @@ export default function App() {
 	const [error, setError] = useState<ErrorInfo | null>(null);
 	const [showSettings, setShowSettings] = useState(false);
 	const [renderingError, setRenderingError] = useState<string | null>(null);
+	const [renderStartTime, setRenderStartTime] = useState<number | null>(null);
+	const [renderElapsed, setRenderElapsed] = useState<string>("");
+	const [previousElapsed, setPreviousElapsed] = useState<string>("");
+	const [sessionTimes, setSessionTimes] = useState<number[]>([]);
+	const [showSessionDetails, setShowSessionDetails] = useState(false);
 	const [regenerating, setRegenerating] = useState(false);
 	const [pipelineStateInfo, setPipelineStateInfo] = useState<PipelineStateInfo | null>(null);
 	const [projects, setProjects] = useState<SavedProject[]>([]);
@@ -104,6 +120,8 @@ export default function App() {
 	const pendingPlanProjectIdRef = useRef<string | null>(null);
 	const currentProjectIdRef = useRef<string | null>(null);
 	const activePipelineProjectIdRef = useRef<string | null>(null);
+	const renderStartTimeRef = useRef<number | null>(null);
+	const isRenderingRef = useRef(false);
 
 	useEffect(() => {
 		window.api.getSettings().then(setSettings);
@@ -186,24 +204,68 @@ export default function App() {
 	useEffect(() => {
 		const unsubProgress = window.api.onProgress((p: PipelineProgress) => {
 			const activePid = activePipelineProjectIdRef.current;
-			if (activePid && activePid !== currentProjectIdRef.current) return;
+			if (activePid !== currentProjectIdRef.current) return;
 			setProgress(p);
 		});
-		const unsubComplete = (path: string) => {
+		const unsubComplete = async (path: string) => {
 			const activePid = activePipelineProjectIdRef.current;
-			if (activePid && activePid !== currentProjectIdRef.current) return;
+			if (activePid !== null && activePid !== currentProjectIdRef.current) return;
+			isRenderingRef.current = false;
 			activePipelineProjectIdRef.current = null;
+			setPreviousElapsed("");
+			setSessionTimes([]);
+			setShowSessionDetails(false);
+			if (!path) {
+				const pid = currentProjectIdRef.current;
+				if (pid && scriptPath && voPath) {
+					try {
+						const stateInfo = await window.api.getPipelineState(pid, scriptPath, voPath, srtPath ?? undefined);
+						if (stateInfo?.renderSegments?.completed > 0) {
+							setPipelineStateInfo(stateInfo);
+						}
+					} catch {}
+				}
+				setRenderingError(null);
+				setProgress(null);
+				setRenderElapsed(fmtElapsed(Date.now() - (renderStartTimeRef.current || Date.now())));
+				setView(scenePlanRef.current ? "editor" : "input");
+				return;
+			}
 			setOutputPath(path);
 			setView("complete");
 			setRenderingError(null);
 			setProgress(null);
+			setRenderElapsed(fmtElapsed(Date.now() - (renderStartTimeRef.current || Date.now())));
 			autoSaveProjectRef.current("complete", { outputPath: path });
 		};
-		const unsubError = (err: string) => {
-			if (err.includes("cancelled by user")) return;
+		const unsubError = async (err: string) => {
+			if (err.includes("cancelled by user")) {
+				isRenderingRef.current = false;
+				setPreviousElapsed("");
+				setSessionTimes([]);
+				setShowSessionDetails(false);
+				const pid = currentProjectIdRef.current;
+				if (pid && scriptPath && voPath) {
+					try {
+						const stateInfo = await window.api.getPipelineState(pid, scriptPath, voPath, srtPath ?? undefined);
+						if (stateInfo?.renderSegments?.completed > 0) {
+							setPipelineStateInfo(stateInfo);
+						}
+					} catch {}
+				}
+				setRenderingError(null);
+				setProgress(null);
+				setRenderElapsed(fmtElapsed(Date.now() - (renderStartTimeRef.current || Date.now())));
+				setView(scenePlanRef.current ? "editor" : "input");
+				return;
+			}
 			const activePid = activePipelineProjectIdRef.current;
-			if (activePid && activePid !== currentProjectIdRef.current) return;
+			if (activePid !== null && activePid !== currentProjectIdRef.current) return;
+			isRenderingRef.current = false;
 			activePipelineProjectIdRef.current = null;
+			setPreviousElapsed("");
+			setSessionTimes([]);
+			setShowSessionDetails(false);
 			const translated = translateError(err);
 			if (translated.actionLabel === "Open Settings") translated.onAction = () => { setError(null); openSettingsRef.current(); };
 			setRenderingError(null);
@@ -248,6 +310,15 @@ export default function App() {
 		window.api.onBeatStatus(unsubBeatStatus);
 		return () => { unsubProgress(); };
 	}, []);
+
+	useEffect(() => {
+		if (view !== "rendering" || !renderStartTime) return;
+		const interval = setInterval(() => {
+			setRenderElapsed(fmtElapsed(Date.now() - renderStartTime));
+		}, 500);
+		setRenderElapsed(fmtElapsed(Date.now() - renderStartTime));
+		return () => clearInterval(interval);
+	}, [view, renderStartTime]);
 
 	useEffect(() => {
 		if (!currentProjectId || !scenePlan) return;
@@ -574,10 +645,12 @@ export default function App() {
 	}, [currentProjectId, scenePlan, beatCandidates, selectedCandidateIndex, assets]);
 
 	const handleRenderVideo = useCallback(async (mode = "render") => {
+		if (isRenderingRef.current) return;
 		if (!scenePlan || !currentProjectId || (!scriptPath && !srtPath) || !voPath) return;
 		const pid = currentProjectId;
+		isRenderingRef.current = true;
 		const stateInfo = await window.api.getPipelineState(pid, scriptPath ?? "", voPath, srtPath ?? undefined);
-		if (currentProjectIdRef.current !== pid) return;
+		if (currentProjectIdRef.current !== pid) { isRenderingRef.current = false; return; }
 		const currentAssets = stateInfo?.assets ?? {};
 		const missing = scenePlan.beats.filter((b: any) => b.type === "clip" || b.type === "image").filter((b: any) => !currentAssets[b.id]);
 		if (missing.length > 0) {
@@ -588,13 +661,27 @@ export default function App() {
 		}
 		setAssets(currentAssets);
 		setPipelineStateInfo(stateInfo);
+		setShowSessionDetails(false);
+		if (mode === "continue") {
+			const prevMs = (stateInfo as any)?.renderSegments?.elapsedMs ?? 0;
+			const times = (stateInfo as any)?.renderSegments?.sessionTimes ?? [];
+			setSessionTimes(times);
+			setPreviousElapsed(prevMs > 0 ? fmtElapsed(prevMs) : "");
+		} else {
+			setSessionTimes([]);
+			setPreviousElapsed("");
+		}
 		activePipelineProjectIdRef.current = pid;
+		setRenderStartTime(Date.now());
+		renderStartTimeRef.current = Date.now();
 		setView("rendering");
 		try {
 			await window.api.renderVideo(pid, scriptPath ?? "", voPath, musicPath || undefined, mode, srtPath ?? undefined, selectedResolution);
 		} catch (err: any) {
+			isRenderingRef.current = false;
 			if (currentProjectIdRef.current !== pid) return;
 			console.error("Render failed:", err.message);
+			setRenderElapsed(fmtElapsed(Date.now() - (renderStartTimeRef.current || Date.now())));
 			setError({ title: "Render Failed", message: err.message });
 		}
 	}, [scenePlan, currentProjectId, scriptPath, srtPath, voPath, musicPath, selectedResolution]);
@@ -602,14 +689,21 @@ export default function App() {
 	const handleStop = useCallback(async () => {
 		try { await window.api.cancelPipeline(); } catch {}
 		activePipelineProjectIdRef.current = null;
+		setPreviousElapsed("");
+		setSessionTimes([]);
+		setShowSessionDetails(false);
 		setRenderingError(null);
 		setProgress(null);
+		setRenderElapsed(fmtElapsed(Date.now() - (renderStartTimeRef.current || Date.now())));
 		setView(scenePlanRef.current ? "editor" : "input");
 	}, []);
 
 	const handleBackToEditor = useCallback(() => {
 		setRenderingError(null);
 		setProgress(null);
+		setPreviousElapsed("");
+		setSessionTimes([]);
+		setShowSessionDetails(false);
 		setView(scenePlanRef.current ? "editor" : "input");
 	}, []);
 
@@ -826,13 +920,31 @@ export default function App() {
 											<option value={720}>720p</option>
 											<option value={1080}>1080p</option>
 										</select>
-										<button
-											onClick={() => setConfirm({ title: "Render Video?", message: "This will start rendering the final video using the current assets. Make sure all assets are downloaded and checked.", confirmLabel: "Render", onConfirm: () => { setConfirm(null); handleRenderVideo("render"); } })}
-											disabled={checkingAssets || previewingAll}
-											className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all shadow-sm ${checkingAssets || previewingAll ? "bg-zinc-700 text-zinc-500 cursor-wait" : "bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-black shadow-md hover:shadow-lg"}`}
-										>
-											{previewingAll ? "Searching..." : checkingAssets ? "Checking..." : "▶ Render"}
-										</button>
+										{(pipelineStateInfo as any)?.renderSegments?.completed > 0 ? (
+											<>
+												<button
+													onClick={() => setConfirm({ title: "Continue Render?", message: "This will continue rendering from where it stopped.", confirmLabel: "Continue", onConfirm: () => { setConfirm(null); handleRenderVideo("continue"); } })}
+													disabled={checkingAssets || previewingAll}
+													className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all shadow-sm ${checkingAssets || previewingAll ? "bg-zinc-700 text-zinc-500 cursor-wait" : "bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-black shadow-md hover:shadow-lg"}`}
+												>
+													{previewingAll ? "Searching..." : checkingAssets ? "Checking..." : "▶ Continue"}
+												</button>
+												<button
+													onClick={() => setConfirm({ title: "New Render?", message: "This will re-render the video from scratch, replacing the existing output.", confirmLabel: "New Render", onConfirm: () => { setConfirm(null); handleRenderVideo("render"); } })}
+													className="text-[10px] text-zinc-500 hover:text-zinc-300 underline underline-offset-2"
+												>
+													New Render
+												</button>
+											</>
+										) : (
+											<button
+												onClick={() => setConfirm({ title: "Render Video?", message: "This will start rendering the final video using the current assets. Make sure all assets are downloaded and checked.", confirmLabel: "Render", onConfirm: () => { setConfirm(null); handleRenderVideo("render"); } })}
+												disabled={checkingAssets || previewingAll}
+												className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all shadow-sm ${checkingAssets || previewingAll ? "bg-zinc-700 text-zinc-500 cursor-wait" : "bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-black shadow-md hover:shadow-lg"}`}
+											>
+												{previewingAll ? "Searching..." : checkingAssets ? "Checking..." : "▶ Render"}
+											</button>
+										)}
 									</div>
 									<div className="w-px h-6 bg-zinc-700/60 mx-1" />
 									<div className="flex items-center gap-1.5">
@@ -906,6 +1018,7 @@ export default function App() {
 										<div className="w-12 h-12 rounded-xl bg-emerald-500/20 flex items-center justify-center"><span className="text-2xl">✅</span></div>
 										<div>
 											<div className="text-emerald-400 font-bold text-lg">Render Complete</div>
+											<div className="text-zinc-400 text-xs mt-1">Took {renderElapsed || fmtElapsed(Date.now() - (renderStartTime || Date.now()))}</div>
 											<div className="text-zinc-500 text-sm font-mono truncate max-w-md">{outputPath}</div>
 										</div>
 									</div>
@@ -925,7 +1038,8 @@ export default function App() {
 						<div className="text-center w-full max-w-lg">
 							{renderingError ? (
 								<>
-									<div className="text-lg font-semibold text-red-400 mb-2">Rendering Failed</div>
+									<div className="text-lg font-semibold text-red-400 mb-1">Rendering Failed</div>
+									<div className="text-sm text-zinc-500 font-mono mb-3">{renderElapsed}</div>
 									<div className="text-sm text-zinc-400 mb-6">{renderingError}</div>
 									<div className="flex gap-3 justify-center">
 										{(pipelineStateInfo as any)?.renderSegments && (pipelineStateInfo as any).renderSegments.completed > 0 && (
@@ -938,13 +1052,43 @@ export default function App() {
 								<>
 									<div className="text-lg font-semibold text-zinc-200 mb-2">Rendering Video</div>
 									{(() => {
-										const parallelSegments = settings?.parallelSegments ?? 1;
+										const isFFmpeg = settings?.renderer === "ffmpeg";
+										const count = isFFmpeg
+											? (settings?.renderConcurrency ?? 4)
+											: (settings?.parallelSegments ?? 1);
 										return (
 											<>
-												<div className="text-sm text-zinc-400 mb-2">Using {parallelSegments} parallel segment{parallelSegments > 1 ? "s" : ""}</div>
+												<div className="text-sm text-zinc-400 mb-2">Using {count} parallel {isFFmpeg ? "FFmpeg process" : "segment"}{count > 1 ? "es" : ""}</div>
 											</>
 										);
 									})()}
+									{previousElapsed ? (
+										<div className="mb-3">
+											<div
+												className="flex items-center justify-center gap-3 cursor-pointer select-none"
+												onClick={() => setShowSessionDetails(!showSessionDetails)}
+											>
+												<div className="text-sm text-zinc-500 font-mono">Prev: {previousElapsed}</div>
+												<div className="text-zinc-700">|</div>
+												<div className="text-sm text-zinc-300 font-mono">Now: {renderElapsed}</div>
+												{sessionTimes.length > 1 && (
+													<span className="text-[10px] text-zinc-600 ml-1">{showSessionDetails ? "▲" : "▼"}</span>
+												)}
+											</div>
+											{showSessionDetails && sessionTimes.length > 1 && (
+												<div className="mt-2 bg-zinc-800/50 rounded-lg border border-zinc-700/30 max-h-32 overflow-y-auto">
+													{sessionTimes.map((t, i) => (
+														<div key={i} className="flex items-center justify-between px-3 py-1.5 text-xs font-mono text-zinc-500 border-b border-zinc-700/20 last:border-b-0">
+															<span>Session {i + 1}</span>
+															<span>{fmtElapsed(t)}</span>
+														</div>
+													))}
+												</div>
+											)}
+										</div>
+									) : (
+										<div className="text-sm text-zinc-500 mb-3 font-mono">{renderElapsed}</div>
+									)}
 									{progress ? (
 										<>
 											<div className="text-sm text-zinc-400 mb-3">{progress.message}</div>

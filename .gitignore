@@ -9,3 +9,4 @@ output/*.mp4
 output/pipeline_state.json
 .env
 .DS_Store
+projects/

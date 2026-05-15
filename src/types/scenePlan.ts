@@ -5,7 +5,18 @@ export type ImageAnimation =
   | "pan_rl"
   | "pan_tb"
   | "pan_bt"
-  | "drift";
+  | "drift"
+  | "zoom_in_tl"
+  | "zoom_in_tr"
+  | "zoom_in_bl"
+  | "zoom_in_br"
+  | "zoom_out_tl"
+  | "zoom_out_tr"
+  | "zoom_out_bl"
+  | "zoom_out_br"
+  | "dramatic_in"
+  | "dramatic_out"
+  | "random";
 
 export type TransitionType =
   | "crossfade"
@@ -68,6 +79,9 @@ export interface RenderSegmentState {
   completedSegments: number[];
   totalSegments: number;
   segmentDir: string;
+  renderPhase?: "beats" | "concat" | "overlay" | "mux";
+  elapsedMs?: number;
+  sessionTimes?: number[];
 }
 
 export interface PipelineState {

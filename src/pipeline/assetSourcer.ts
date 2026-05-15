@@ -12,6 +12,52 @@ import {
 } from "../utils/stockApi.js";
 import { ensureDir, deleteFile } from "../utils/fileManager.js";
 import { checkThumbnail } from "./qualityChecker.js";
+import { createOpenRouterClient, chatCompletion } from "../utils/llm.js";
+
+const QUERY_TRANSLATOR_PROMPT = `You rewrite stock footage search queries into concrete terms that stock photographers actually use as tags.
+
+RULES:
+- Output 3 alternative queries, each 1-4 words
+- Each query MUST be something you could type into Pexels right now and get 10+ results
+- Use ONLY common nouns and simple descriptors a photographer would tag their photo with
+- NEVER use abstract, conceptual, or literary language
+- NEVER combine more than 2 concepts in one query
+- Think: what OBJECT is on screen? Name it plainly.
+
+BAD (no stock photographer tags these): "ancient middle eastern market spices", "biblical healing tradition", "sacred botanical remedy", "ethereal wellness ceremony", "timeless natural wisdom"
+GOOD (actual photographer tags): "spice market", "cinnamon sticks", "saffron", "herbs mortar", "dried herbs", "tea pouring", "olive oil", "honey jar"
+
+Respond with ONLY valid JSON:
+{"queries": ["query1", "query2", "query3"]}`;
+
+async function translateQuery(
+  originalQuery: string,
+  config: Config,
+  logger: Logger
+): Promise<string[]> {
+  if (!config.openrouterApiKeys?.length) return [];
+  try {
+    const client = createOpenRouterClient(config.openrouterApiKeys[0]);
+    const model = config.qualityCheckerModel || "google/gemma-3-4b-it";
+    const raw = await chatCompletion(
+      client,
+      model,
+      QUERY_TRANSLATOR_PROMPT,
+      `Original query: "${originalQuery}"`,
+      3,
+      undefined,
+      256
+    );
+    const parsed = JSON.parse(raw);
+    if (parsed.queries && Array.isArray(parsed.queries)) {
+      return parsed.queries.filter((q: string) => typeof q === "string" && q.trim());
+    }
+    return [];
+  } catch (err: any) {
+    await logger.log(`Query translation failed: ${err.message}`);
+    return [];
+  }
+}
 
 interface SourceResult {
   beatId: string;
@@ -119,6 +165,7 @@ async function sourceBeatWithThumbnails(
   const allQueries = [...new Set(queries.filter(Boolean))];
   let bestRejected: { candidate: any; score: number; reason: string } | null = null;
   let queriesBailed = 0;
+  let translatedUsed = false;
 
   for (const query of allQueries) {
     if (signal?.aborted) break;
@@ -132,6 +179,28 @@ async function sourceBeatWithThumbnails(
       candidates = await searchAllVideoCandidates(query, config.pexelsApiKey, config.pixabayApiKey);
     } else {
       candidates = await searchAllImageCandidates(query, config.pexelsApiKey, config.pixabayApiKey);
+    }
+
+    if (candidates.length === 0 && !translatedUsed && query) {
+      await logger.log(`${beat.id}: no results for "${query}" — translating query...`);
+      const translated = await translateQuery(query, config, logger);
+      if (translated.length > 0) {
+        translatedUsed = true;
+        for (const alt of translated) {
+          if (signal?.aborted) break;
+          await logger.log(`${beat.id}: retrying with "${alt}"...`);
+          if (isClip) {
+            candidates = await searchAllVideoCandidates(alt, config.pexelsApiKey, config.pixabayApiKey);
+          } else {
+            candidates = await searchAllImageCandidates(alt, config.pexelsApiKey, config.pixabayApiKey);
+          }
+          if (candidates.length > 0) {
+            await logger.log(`${beat.id}: found ${candidates.length} candidates for "${alt}"`);
+            break;
+          }
+          await logger.log(`${beat.id}: no results for "${alt}" either`);
+        }
+      }
     }
 
     if (candidates.length === 0) {

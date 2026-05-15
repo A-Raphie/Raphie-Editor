@@ -39,6 +39,7 @@ export class Pipeline {
   private state!: PipelineState;
   private statePath: string;
   private abortController: AbortController | null = null;
+  private cancelled = false;
   public onLog?: (message: string) => void;
   public onProgress?: (progress: PipelineProgressEvent) => void;
   public onAssetBatch?: (assets: AssetMapping) => void;
@@ -47,6 +48,11 @@ export class Pipeline {
   constructor(config: Config) {
     this.config = config;
     this.statePath = path.join(config.outputDir, STATE_FILE);
+  }
+
+  cancel(): void {
+    this.cancelled = true;
+    this.abortController?.abort();
   }
 
   private createAbortSignal(): AbortSignal | undefined {
@@ -466,23 +472,66 @@ export class Pipeline {
           segmentLength = info.segmentLength;
           segmentDir = info.segmentDir;
         },
-        onSegmentProgress: (seg, total, frameProgress) => {
-          totalSegments = total;
-          const done = completedSoFar.length;
-          const pct = Math.round(((done + frameProgress) / total) * 100);
-          const framePct = Math.round(frameProgress * 100);
-          this.emitProgress("rendering", pct, 100, `Rendering segment ${seg + 1}/${total} — ${framePct}%`);
-        },
-        onSegmentComplete: async (seg) => {
-          completedSoFar.push(seg);
-          this.state.renderSegments = {
-            segmentLength,
-            completedSegments: [...completedSoFar],
-            totalSegments,
-            segmentDir,
-          };
-          await this.saveState();
-        },
+        onSegmentProgress: useFFmpeg
+          ? undefined
+          : (seg, total, frameProgress) => {
+              totalSegments = total;
+              const done = completedSoFar.length;
+              const pct = Math.round(((done + frameProgress) / total) * 100);
+              const framePct = Math.round(frameProgress * 100);
+              this.emitProgress("rendering", pct, 100, `Rendering segment ${seg + 1}/${total} — ${framePct}%`);
+            },
+        onSegmentComplete: useFFmpeg
+          ? async (seg) => {
+              completedSoFar.push(seg);
+              this.state.renderSegments = {
+                segmentLength,
+                completedSegments: [...completedSoFar],
+                totalSegments,
+                segmentDir,
+                renderPhase: "beats" as const,
+                elapsedMs: this.state.renderSegments?.elapsedMs,
+                sessionTimes: this.state.renderSegments?.sessionTimes,
+              };
+              await this.saveState();
+            }
+          : async (seg) => {
+              completedSoFar.push(seg);
+              this.state.renderSegments = {
+                segmentLength,
+                completedSegments: [...completedSoFar],
+                totalSegments,
+                segmentDir,
+              };
+              await this.saveState();
+            },
+        onPercent: useFFmpeg
+          ? (percent, message) => {
+              this.onProgress?.({ step: "rendering", current: percent, total: 100, percent, message });
+            }
+          : undefined,
+        onPhaseComplete: useFFmpeg
+          ? async (phase, dir, elapsedMs) => {
+              this.state.renderSegments = {
+                segmentLength,
+                completedSegments: [...completedSoFar],
+                totalSegments,
+                segmentDir: dir,
+                renderPhase: phase,
+                elapsedMs: elapsedMs ?? this.state.renderSegments?.elapsedMs,
+                sessionTimes: this.state.renderSegments?.sessionTimes,
+              };
+              await this.saveState();
+            }
+          : undefined,
+        isCancelled: useFFmpeg
+          ? () => this.cancelled
+          : undefined,
+        abortSignal: useFFmpeg
+          ? this.createAbortSignal()
+          : undefined,
+        previousElapsedMs: existingState?.elapsedMs,
+        sessionTimes: existingState?.sessionTimes,
         parallelSegments,
       }
     );
@@ -648,9 +697,12 @@ export class Pipeline {
     await this.logger.log("Cleanup complete");
   }
 
-  async renderOnly(): Promise<string> {
+  async renderOnly(voPath?: string, musicPath?: string): Promise<string> {
+    this.cancelled = false;
     const stateData = await fs.readFile(this.statePath, "utf-8");
     this.state = JSON.parse(stateData) as PipelineState;
+    if (voPath) this.state.voPath = voPath;
+    if (musicPath) this.state.musicPath = musicPath;
     const runId = `render_${Date.now()}`;
     this.logger = new Logger(this.config, runId);
     this.logger.onLog = (msg) => this.onLog?.(msg);
@@ -697,20 +749,33 @@ export class Pipeline {
     } catch (err: any) {
       this.state.status = "failed";
       await this.saveState();
+      if (err.message === "cancelled by user") {
+        await this.logger.log("Render cancelled by user");
+        await this.logger.close();
+        return "";
+      }
       await this.logger.error(`Render failed: ${err.message}`);
       await this.logger.close();
       throw err;
     }
   }
 
-  async renderNew(): Promise<string> {
+  async renderNew(voPath?: string, musicPath?: string): Promise<string> {
     try {
       const stateData = await fs.readFile(this.statePath, "utf-8");
       this.state = JSON.parse(stateData) as PipelineState;
+      if (voPath) this.state.voPath = voPath;
+      if (musicPath) this.state.musicPath = musicPath;
+      if (this.state.renderSegments?.segmentDir) {
+        try {
+          const rimraf = await import("fs");
+          rimraf.rmSync(this.state.renderSegments.segmentDir, { recursive: true, force: true });
+        } catch {}
+      }
       this.state.renderSegments = null;
       await fs.writeFile(this.statePath, JSON.stringify(this.state, null, 2));
     } catch {}
-    return this.renderOnly();
+    return this.renderOnly(voPath, musicPath);
   }
 }
 
