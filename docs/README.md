@@ -4,7 +4,7 @@ tags: [home]
 
 # AI Video Editor
 
-Autonomous documentary video pipeline. Takes a script/SRT + voiceover audio, uses LLMs to plan visual beats, sources video/image assets via Pexels/Pixabay APIs, quality-checks them via vision LLMs, and renders the final 1080p video using Remotion.
+Autonomous documentary video pipeline. Takes a script/SRT + voiceover audio, uses LLMs to plan visual beats, sources video/image assets via Pexels/Pixabay APIs, quality-checks them via vision LLMs, and renders the final video using **Remotion** or **FFmpeg**.
 
 Available as a **macOS desktop app** (Electron).
 
@@ -16,14 +16,16 @@ graph TD
     APP --> SP[Scene Planner]
     SP --> |ScenePlan| AS[Asset Sourcer]
     AS --> |clips + images| QC[Quality Checker]
-    QC --> |accepted assets| REN[Remotion Renderer]
-    REN --> MP4[Final .mp4]
+    QC --> |accepted assets| REN[Renderer]
+    
+    REN --> |Remotion| REM[Remotion/Chrome]
+    REN --> |FFmpeg| FFM[FFmpeg Renderer]
+    REM --> MP4[Final .mp4]
+    FFM --> MP4
     
     SP --> |LLM call| LLM[OpenRouter API]
     AS --> |search + download| API[Pexels / Pixabay]
     QC --> |LLM vision| LLM
-    REN --> |Chrome headless| REM[Remotion/webpack]
-    REN --> |ffmpeg mux| FS[Filesystem]
 ```
 
 ## Explore
@@ -36,11 +38,12 @@ graph TD
 - [[Troubleshooting]] - Known issues and fixes
 
 ### Pipeline Steps
-- [[Orchestrator]] - Master pipeline controller
+- [[Orchestrator]] - Master pipeline controller with cancel/continue
 - [[Scene Planner]] - LLM scene plan generation
-- [[Asset Sourcer]] - Pexels/Pixabay API search + download
+- [[Asset Sourcer]] - Pexels/Pixabay API search + download with LLM query translation
 - [[Quality Checker]] - Vision LLM asset validation
 - [[Renderer]] - Remotion segment rendering + ffmpeg audio muxing
+- [[FFmpeg Renderer]] - Native FFmpeg renderer with cancel support
 
 ### Electron App
 - [[Main Process]] - App lifecycle, patches
@@ -51,7 +54,7 @@ graph TD
 - [[Packaging]] - electron-builder, asar, resources
 
 ### UI Components
-- [[App Component]] - Root component, state, error handling
+- [[App Component]] - Root component, state, error handling, cancel/continue UI
 - [[Sidebar]] - Navigation
 - [[DropZone]] - File input
 - [[Model Selector]] - Model dropdowns with /hr cost labels
@@ -68,7 +71,7 @@ graph TD
 - [[Remotion Root]] - Composition registration
 - [[Documentary]] - Main composition
 - [[Video Clip]] - Clip playback with effects
-- [[Image Slide]] - Ken Burns animation
+- [[Image Slide]] - Ken Burns animation (14 directions)
 - [[Title Card]] - Title cards
 - [[Lower Third]] - Overlay text
 - [[Motion Graphic]] - Animated graphics

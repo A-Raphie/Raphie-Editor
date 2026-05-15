@@ -6,7 +6,7 @@ tags: [pipeline, download]
 
 **File**: `src/pipeline/assetSourcer.ts`
 
-Downloads video clips and images for each beat using Pexels and Pixabay stock APIs, with parallel downloading and fallback queries.
+Downloads video clips and images for each beat using Pexels and Pixabay stock APIs, with parallel downloading, fallback queries, and LLM query translation.
 
 ## Key Exports
 
@@ -27,11 +27,26 @@ Downloads video clips and images for each beat using Pexels and Pixabay stock AP
 2. Download and save image
 3. Retries with fallback query on failure
 
+## LLM Query Translation
+
+When a stock search returns zero results:
+1. Calls LLM (via OpenRouter) to translate the query into photographer-friendly terms
+2. Uses `QUERY_TRANSLATOR_PROMPT` — instructs LLM to output 3 concrete, tag-like queries
+3. Retries each translated query until results are found
+4. Example: "biblical healing tradition" → ["herbs mortar", "dried herbs", "tea pouring"]
+
+## Download Retry
+
+- `downloadFile` wraps `downloadSingle` with exponential backoff
+- Up to 5 attempts: 1s, 2s, 4s, 8s, 16s delays
+- Abort signal respected — doesn't retry if aborted
+
 ## Fallback Strategy
 
 1. Try original search query
-2. On failure, try generic fallbacks from config
-3. Failed beats tracked in `failed` map with `{ reason }`
+2. On zero results, translate query via LLM and retry
+3. On failure, try generic fallbacks from config
+4. Failed beats tracked in `failed` map with `{ reason }`
 
 ## Dependencies
 - [[LLM Client]], [[File Utils]], [[Data Model]], [[Configuration]]

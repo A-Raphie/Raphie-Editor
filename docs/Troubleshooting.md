@@ -32,6 +32,24 @@ All issues encountered and fixed during development.
 **Cause**: `process.chdir()` to home directory broke `findRemotionRoot()` which resolves modules relative to cwd.
 **Fix**: Don't change cwd globally. Only temporarily for `ensureBrowser()`. See [[Renderer]].
 
+## Cancel/Continue Issues
+
+### RAM spikes to 16GB on cancel+continue
+**Cause**: `cancel()` only set a boolean flag — in-flight FFmpeg processes kept running. New render started alongside old ones → 2x processes.
+**Fix**: `cancel()` now calls `AbortController.abort()` which kills all spawned FFmpeg processes via `child.kill("SIGTERM")`.
+
+### Progress resets to 12/79 after continue
+**Cause**: `Promise.all(promises)` — if any promise rejects (from cancel killing a process), the whole batch fails and `saveManifest` never runs. With concurrency=50, up to 49 beats lost per cancel.
+**Fix**: Switched to `Promise.allSettled(promises)` — saves manifest with whatever finished. Reduced concurrency default to 12 for more frequent saves.
+
+### Continue button never appeared
+**Cause**: UI checked `renderSegments.completed` but IPC handler returns `completed` (a number), not `completedSegments` (an array).
+**Fix**: Changed all UI checks to use `renderSegments.completed > 0`.
+
+### Progress counter hijacked by old render
+**Cause**: Progress filter used `if (activePid && activePid !== currentProjectId)` — when `activePid` was null after Stop, old events passed through and overwrote new render progress.
+**Fix**: Changed to `if (activePid !== currentProjectIdRef.current)` — blocks ALL events when IDs don't match.
+
 ## Quality Checker Issues
 
 ### "provider error" - all beats auto-accepted
@@ -57,8 +75,13 @@ All issues encountered and fixed during development.
 ## Rebuild Cycle
 ```bash
 npm run build:electron && npx electron-builder --mac --dir
-pkill -f "AI Video Editor"; sleep 1
-rm -rf "/Applications/AI Video Editor.app"
-cp -R "dist/mac-arm64/AI Video Editor.app" /Applications/
-open "/Applications/AI Video Editor.app"
+pkill -f "Raphie's Editor"; sleep 1
+rm -rf "/Applications/Raphie's Editor.app"
+cp -R "dist/mac-arm64/Raphie's Editor.app" /Applications/
+open "/Applications/Raphie's Editor.app"
+```
+
+Or use the shortcut:
+```bash
+npm run update:app
 ```

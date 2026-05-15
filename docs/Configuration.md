@@ -18,19 +18,24 @@ UI overrides these via [[Settings]] component.
 
 | Field | Default | Notes |
 |-------|---------|-------|
-| `fps` | 30 | Fixed for Remotion |
+| `fps` | 30 | Fixed for rendering |
 | `concurrency` | 4 | Parallel asset downloads |
 | `downloadResolution` | 2160 | Pexels/Pixabay download resolution |
-| `downloadTimeout` | 90000ms | Per-download timeout |
+| `downloadTimeout` | 0 (disabled) | Per-download timeout (0 = no timeout) |
 | `segmentLength` | 900 frames | Segment duration for rendering (~30s at 30fps), configurable in settings |
-| `parallelSegments` | 1 | Parallel render segments (range 1-3) |
+| `parallelSegments` | 1 | Parallel render segments (Remotion only, range 1-3) |
+| `renderConcurrency` | 3 | Parallel FFmpeg processes (range 1-12) |
 | `previewResolution` | 1080 | Preview render resolution |
+| `renderer` | "remotion" | Renderer backend: "remotion" or "ffmpeg" |
+| `enableColorGrade` | false | Apply color grading in FFmpeg renderer |
+| `enableVignette` | false | Apply vignette effect in FFmpeg renderer |
+| `enableQualityCheckOnPreview` | true | Run quality check on preview asset searches |
 | `outputDir` | `~/AI Video Editor/output` | Rendered videos |
 | `clipsDir` | `~/AI Video Editor/output/clips` | Downloaded clips |
 | `imagesDir` | `~/AI Video Editor/output/images` | Downloaded images |
 | `remotionEntryPath` | `src/remotion/index.ts` | Remotion entry |
 | `remotionPublicDir` | `assets/` | Static file serving |
-| `ffmpegPath` | Bundled or homebrew | ffmpeg binary |
+| `ffmpegPath` | Bundled or homebrew | FFmpeg binary |
 | `vfxPath` | `assets/vfx/subscribe.mp4` | Subscribe overlay video |
 
 ## Settings Persistence
