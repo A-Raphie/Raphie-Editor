@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import type { AppSettings } from "../../../shared/types";
+import { PLANNER_MODELS, CHECKER_MODELS } from "../../../shared/types";
 
 const inputCls = "w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/30 transition-all";
 const labelCls = "block text-[10px] text-zinc-400 uppercase tracking-wider font-semibold mb-1.5";
@@ -75,22 +76,13 @@ export default function Settings({ settings, onSave, onClose }: SettingsProps) {
 									<div>
 										<label className={labelCls}>Scene Planner Model</label>
 										<select value={form.scenePlannerModel} onChange={(e) => setForm({ ...form, scenePlannerModel: e.target.value })} className={inputCls}>
-											<option value="anthropic/claude-sonnet-4">Claude Sonnet 4 (~$3.00/hr)</option>
-											<option value="anthropic/claude-haiku-4.5">Claude Haiku 4.5 (~$1.00/hr)</option>
-											<option value="deepseek/deepseek-v4-flash">DeepSeek V4 Flash (~$0.08/hr)</option>
-											<option value="qwen/qwen3-235b-a22b-2507">Qwen3 235B 2507 (~$0.03/hr)</option>
-											<option value="google/gemma-3-4b-it">Gemma 3 4B (~$0.02/hr)</option>
-											<option value="openrouter/owl-alpha">Owl Alpha (free)</option>
+											{PLANNER_MODELS.map((m) => <option key={m.value} value={m.value}>{m.label} ({m.cost})</option>)}
 										</select>
 									</div>
 									<div>
 										<label className={labelCls}>Quality Checker Model</label>
 										<select value={form.qualityCheckerModel} onChange={(e) => setForm({ ...form, qualityCheckerModel: e.target.value })} className={inputCls}>
-											<option value="google/gemini-2.5-flash">Gemini 2.5 Flash (~$3.30/hr)</option>
-											<option value="openai/gpt-4o-mini">GPT-4o Mini (~$0.75/hr)</option>
-											<option value="google/gemini-2.5-flash-lite">Gemini 2.5 Flash Lite (~$0.40/hr)</option>
-											<option value="google/gemma-3-4b-it">Gemma 3 4B (~$0.08/hr)</option>
-											<option value="none">None (Manual Review)</option>
+											{CHECKER_MODELS.map((m) => <option key={m.value} value={m.value}>{m.label} ({m.cost})</option>)}
 										</select>
 									</div>
 								</div>

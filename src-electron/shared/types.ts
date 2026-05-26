@@ -1,3 +1,26 @@
+export interface ModelOption {
+  value: string;
+  label: string;
+  cost: string;
+}
+
+export const PLANNER_MODELS: ModelOption[] = [
+  { value: "anthropic/claude-sonnet-4", label: "Claude Sonnet 4", cost: "~$3.00/hr" },
+  { value: "anthropic/claude-haiku-4.5", label: "Claude Haiku 4.5", cost: "~$1.00/hr" },
+  { value: "deepseek/deepseek-v4-flash", label: "DeepSeek V4 Flash", cost: "~$0.08/hr" },
+  { value: "qwen/qwen3-235b-a22b-2507", label: "Qwen3 235B 2507", cost: "~$0.03/hr" },
+  { value: "google/gemma-3-4b-it", label: "Gemma 3 4B", cost: "~$0.02/hr" },
+  { value: "openrouter/owl-alpha", label: "Owl Alpha", cost: "free" },
+];
+
+export const CHECKER_MODELS: ModelOption[] = [
+  { value: "google/gemini-2.5-flash", label: "Gemini 2.5 Flash", cost: "~$3.30/hr" },
+  { value: "openai/gpt-4o-mini", label: "GPT-4o Mini", cost: "~$0.75/hr" },
+  { value: "google/gemini-2.5-flash-lite", label: "Gemini 2.5 Flash Lite", cost: "~$0.40/hr" },
+  { value: "google/gemma-3-4b-it", label: "Gemma 3 4B", cost: "~$0.08/hr" },
+  { value: "none", label: "None (Manual Review)", cost: "free" },
+];
+
 export interface CandidatePreview {
   url: string;
   previewUrl: string;
