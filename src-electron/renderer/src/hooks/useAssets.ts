@@ -70,7 +70,7 @@ export function useAssets(deps: UseAssetsDeps) {
 		};
 		loadThumbs();
 		return () => { cancelled = true; };
-	}, [assets, currentProjectId]);
+	}, [assets, currentProjectId, Object.keys(thumbnails).length]);
 
 	useEffect(() => {
 		if (!scenePlan || Object.keys(beatTextSegments).length === 0) { setSubscribeHintBeatIds(new Set()); return; }
