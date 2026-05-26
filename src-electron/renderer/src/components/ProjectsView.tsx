@@ -79,12 +79,11 @@ function ProjectCard({ project, onOpen, onRename, onDelete, onAddToQueue }: Proj
 				</div>
 				<span className={`text-[10px] uppercase tracking-wider font-medium px-2.5 py-1 rounded-md border flex-shrink-0 ${statusBadgeColor(project.status)}`}>{statusLabel(project.status)}</span>
 			</div>
-			<div className="flex items-center justify-between">
-				<span className="text-xs text-zinc-600 flex-shrink min-w-0 truncate">
-					{project.scenePlan?.totalDurationSeconds != null && <>⏱ {Math.floor(project.scenePlan.totalDurationSeconds / 60)}:{String(Math.floor(project.scenePlan.totalDurationSeconds % 60)).padStart(2, "0")} · </>}
-					{formatDate(project.updatedAt)}
-				</span>
-				<div className="flex gap-1.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-all">
+			<p className="text-xs text-zinc-600 mb-2">
+				{project.scenePlan?.totalDurationSeconds != null && <>⏱ {Math.floor(project.scenePlan.totalDurationSeconds / 60)}:{String(Math.floor(project.scenePlan.totalDurationSeconds % 60)).padStart(2, "0")} · </>}
+				{formatDate(project.updatedAt)}
+			</p>
+			<div className="flex gap-1.5 justify-end opacity-0 group-hover:opacity-100 transition-all">
 					<button className="px-2.5 py-1.5 text-xs rounded-lg bg-zinc-700 hover:bg-zinc-600 text-zinc-300 font-medium transition-colors" onClick={() => setEditing(true)}>Rename</button>
 					{confirmDelete ? (
 						<div className="flex gap-1">
@@ -96,7 +95,6 @@ function ProjectCard({ project, onOpen, onRename, onDelete, onAddToQueue }: Proj
 					)}
 					<button className="px-3 py-1.5 text-xs rounded-lg bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-black font-semibold transition-all shadow-sm hover:shadow-md" onClick={() => onOpen(project)}>Open</button>
 					{onAddToQueue && <button className="px-2.5 py-1.5 text-xs rounded-lg bg-zinc-700 hover:bg-zinc-600 text-zinc-300 font-medium transition-colors" onClick={() => onAddToQueue(project)}>+ Queue</button>}
-				</div>
 			</div>
 		</div>
 	);
