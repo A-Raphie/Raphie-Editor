@@ -3,6 +3,7 @@ import fs from "fs";
 import { app } from "electron";
 import type { SavedProject } from "../../shared/types";
 import { randomUUID } from "crypto";
+import { getProjectDir } from "../services/paths";
 
 function getProjectsPath(): string {
   return path.join(app.getPath("userData"), "projects.json");
@@ -72,6 +73,10 @@ export function deleteProject(id: string): boolean {
   const filtered = projects.filter((p) => p.id !== id);
   if (filtered.length === projects.length) return false;
   writeProjects(filtered);
+  try {
+    const dir = getProjectDir(id);
+    if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
+  } catch {}
   return true;
 }
 

@@ -1284,14 +1284,16 @@ export function registerIpcHandlers(win: BrowserWindow): void {
   ipcMain.handle(
     IPC_CHANNELS.GET_BEAT_THUMBNAIL,
     async (_, beatId: string, assetPath: string, projectId: string) => {
-      if (!assetPath || !fs.existsSync(assetPath)) return null;
-
-      const outputDir = projectId ? getOutputDir(projectId) : path.dirname(assetPath);
+      const outputDir = projectId ? getOutputDir(projectId) : (assetPath ? path.dirname(assetPath) : "");
+      if (!outputDir) return null;
       const thumbsDir = path.join(outputDir, "thumbs");
-      if (!fs.existsSync(thumbsDir)) fs.mkdirSync(thumbsDir, { recursive: true });
       const thumbPath = path.join(thumbsDir, `${beatId}.jpg`);
 
       if (fs.existsSync(thumbPath)) return thumbPath;
+
+      if (!assetPath || !fs.existsSync(assetPath)) return null;
+
+      if (!fs.existsSync(thumbsDir)) fs.mkdirSync(thumbsDir, { recursive: true });
 
       const ext = path.extname(assetPath).toLowerCase();
       if (ext === ".jpg" || ext === ".jpeg" || ext === ".png" || ext === ".webp") {

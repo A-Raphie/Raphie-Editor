@@ -78,6 +78,7 @@ function ProjectCard({ project, onOpen, onRename, onDelete, onAddToQueue }: Proj
 					<p className="text-xs text-zinc-500 mt-1 truncate">{scriptName}</p>
 					<p className="text-xs text-zinc-600 mt-1">
 						{project.scenePlan?.totalDurationSeconds != null && <>⏱ {Math.floor(project.scenePlan.totalDurationSeconds / 60)}:{String(Math.floor(project.scenePlan.totalDurationSeconds % 60)).padStart(2, "0")} · </>}
+						{project.assets && Object.keys(project.assets).length > 0 && <>{Object.keys(project.assets).length} assets · </>}
 						{formatDate(project.updatedAt)}
 					</p>
 				</div>
