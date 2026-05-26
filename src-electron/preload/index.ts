@@ -51,9 +51,6 @@ const api = {
   getBeatTextSegments: (beats: any[], scriptPath?: string, srtPath?: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.GET_BEAT_TEXT_SEGMENTS, beats, scriptPath, srtPath),
 
-  getModelUptime: (model: string): Promise<number | null> =>
-    ipcRenderer.invoke(IPC_CHANNELS.GET_MODEL_UPTIME, model),
-
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
 
   onProgress: (callback: (progress: PipelineProgress) => void) => {

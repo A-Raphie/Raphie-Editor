@@ -234,33 +234,6 @@ export function registerIpcHandlers(win: BrowserWindow): void {
     return true;
   });
 
-  ipcMain.handle(IPC_CHANNELS.GET_MODEL_UPTIME, async (_, model: string) => {
-    try {
-      const settings = loadSettings();
-      const apiKey = settings.openrouterApiKeys?.[0];
-      if (!apiKey) return null;
-      const [author, slug] = model.split("/");
-      const resp = await fetch(`https://openrouter.ai/api/v1/models/${author}/${slug}/endpoints`, {
-        headers: { Authorization: `Bearer ${apiKey}` },
-      });
-      if (!resp.ok) return null;
-      const json = await resp.json();
-      const endpoints = json?.data?.endpoints;
-      if (!endpoints || endpoints.length === 0) return null;
-      let bestUptime: number | null = null;
-      for (const ep of endpoints) {
-        if (typeof ep.uptime_last_5m === "number") {
-          if (bestUptime === null || ep.uptime_last_5m > bestUptime) {
-            bestUptime = ep.uptime_last_5m;
-          }
-        }
-      }
-      return bestUptime;
-    } catch {
-      return null;
-    }
-  });
-
   ipcMain.handle(IPC_CHANNELS.SELECT_FILES, async (_, options: { filters?: any[]; multiple?: boolean }) => {
     const result = await dialog.showOpenDialog(win, {
       properties: [options.multiple ? "multiSelections" : "openFile", "openFile"],
