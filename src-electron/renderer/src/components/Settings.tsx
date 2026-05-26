@@ -86,6 +86,7 @@ export default function Settings({ settings, onSave, onClose }: SettingsProps) {
 									<div>
 										<label className={labelCls}>Quality Checker Model</label>
 										<select value={form.qualityCheckerModel} onChange={(e) => setForm({ ...form, qualityCheckerModel: e.target.value })} className={inputCls}>
+											<option value="none">None (Manual Review)</option>
 											<option value="google/gemini-2.5-flash">Gemini 2.5 Flash (~$3.30/hr)</option>
 											<option value="openai/gpt-4o-mini">GPT-4o Mini (~$0.75/hr)</option>
 											<option value="google/gemini-2.5-flash-lite">Gemini 2.5 Flash Lite (~$0.40/hr)</option>

@@ -63,6 +63,11 @@ export async function qualityCheckAssets(
   config: Config,
   logger: Logger
 ): Promise<{ accepted: AssetMapping; rejected: string[] }> {
+  if (config.qualityCheckerModel === "none") {
+    await logger.log("Quality checker set to None; accepting all sourced assets for manual review");
+    return { accepted: { ...assets }, rejected: [] };
+  }
+
   const client = createOpenRouterClient(config.openrouterApiKeys[0]);
   const accepted: AssetMapping = {};
   const rejected: string[] = [];
@@ -186,6 +191,10 @@ export async function checkThumbnail(
   config: Config,
   logger: Logger
 ): Promise<{ accepted: boolean; score: number; reason: string }> {
+  if (config.qualityCheckerModel === "none") {
+    return { accepted: true, score: 10, reason: "Manual review mode" };
+  }
+
   const client = createOpenRouterClient(config.openrouterApiKeys[0]);
   try {
     const base64 = await fileToBase64(thumbnailPath);

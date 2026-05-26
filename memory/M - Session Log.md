@@ -1,6 +1,38 @@
 # M - Session Log
 
-## Session 16 (Current)
+## Session 20 (Current)
+
+### Completed
+- Added `None (Manual Review)` option for the quality checker model in quick model selector and settings
+- Added `none` to valid checker model settings so it persists instead of migrating back to default
+- Skipped automated pipeline quality checking when checker is `none`, passing sourced assets through for manual review
+- Skipped preview thumbnail AI checks when checker is `none`, returning candidates directly for manual selection
+- Made asset sourcing accept candidates without thumbnail AI checks in manual review mode
+
+### Files Changed
+- `src-electron/renderer/src/components/ModelSelector.tsx`: Added checker `None (Manual Review)` option
+- `src-electron/renderer/src/components/Settings.tsx`: Added checker `None (Manual Review)` option
+- `src-electron/main/ipc-handlers.ts`: Added valid model support and preview bypass for `none`
+- `src/pipeline/qualityChecker.ts`: Added no-op acceptance path for `none`
+- `src/pipeline/orchestrator.ts`: Added quality-check step skip for `none`
+- `src/pipeline/assetSourcer.ts`: Added manual-review candidate acceptance path while keeping query translation functional
+
+---
+
+## Session 17
+
+### Completed
+- Fixed beat durations being destroyed by `scaleToAudioDuration()` running after enforcement
+- Added `enforceHookDurations()` function to enforce hook clip min/max durations (was previously only in LLM prompt)
+- Reordered pipeline execution: `scaleToAudioDuration` → `enforceHookDurations` → `enforceBodyDurations` → `enforceBeatDistribution`
+- Applied fix in all 3 planning paths: `planScenes()`, `planScenesFromSrt()`, `planScenesFromSrtChunked()`
+
+### Files Changed
+- `src/pipeline/scenePlanner.ts`: Added `enforceHookDurations()`, reordered execution in 3 paths
+
+---
+
+## Session 16
 
 ### Completed
 - Replaced hardcoded `SEGMENT_LENGTH=900` constant in `renderer.ts` with `config.segmentLength` (reads from settings, defaults to 900)

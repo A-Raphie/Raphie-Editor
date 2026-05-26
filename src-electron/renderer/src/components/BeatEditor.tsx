@@ -21,7 +21,6 @@ interface BeatStatus {
 
 interface BeatEditorProps {
 	beat: Beat;
-	thumbnail: string | undefined;
 	assetPath: string | undefined;
 	onReDownload: ((beatId: string, query: string) => void) | undefined;
 	onSaveSearch: ((beatId: string, query: string) => void) | undefined;
@@ -37,7 +36,7 @@ interface BeatEditorProps {
 	scriptSegment: string | undefined;
 }
 
-export default function BeatEditor({ beat, thumbnail, assetPath, onReDownload, onSaveSearch, onToggleOverlay, onSearchBeat, onSelectCandidate, onDownloadCandidate, isReDownloading, beatStatus, subscribeHint, candidates, selectedCandidateIndex, scriptSegment }: BeatEditorProps) {
+export default function BeatEditor({ beat, assetPath, onReDownload, onSaveSearch, onToggleOverlay, onSearchBeat, onSelectCandidate, onDownloadCandidate, isReDownloading, beatStatus, subscribeHint, candidates, selectedCandidateIndex, scriptSegment }: BeatEditorProps) {
 	const [query, setQuery] = useState(beat.searchQuery ?? "");
 
 	useEffect(() => {
@@ -51,73 +50,40 @@ export default function BeatEditor({ beat, thumbnail, assetPath, onReDownload, o
 
 	return (
 		<div className="bg-zinc-900 p-3 border-t border-zinc-800">
-			<div className="flex gap-4">
-				<div className="flex-shrink-0">
-					{thumbnail ? (
-						<div className="relative w-28 h-20 rounded-lg overflow-hidden border border-zinc-700">
-							<img key={thumbnail} src={`file://${thumbnail.split("?")[0]}?t=${beat.id}`} className="w-full h-full object-cover" alt="" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
-							{isDownloading && (
-								<div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center">
-									<div className="w-16 h-1.5 bg-zinc-600 rounded-full overflow-hidden">
-										<div className="h-full bg-blue-400 rounded-full" style={{ width: `${beatStatus?.downloadPercent ?? 0}%` }} />
-									</div>
-									<span className="text-[8px] text-blue-300 mt-1">{beatStatus?.downloadPercent ?? 0}%</span>
-								</div>
-							)}
-						</div>
-					) : (
-						<div className="w-28 h-20 rounded-lg border border-zinc-700 bg-zinc-800 flex items-center justify-center">
-							<span className="text-xs text-zinc-600">No thumb</span>
-						</div>
-					)}
-				</div>
-				<div className="flex-1 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-					<div className="flex items-center gap-2">
-						<span className="text-zinc-500">Beat</span>
-						<span className="font-mono text-zinc-300">{beat.id}</span>
-					</div>
-					<div className="flex items-center gap-2">
-						<span className="text-zinc-500">Type</span>
-						<span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${beat.type === "clip" ? "bg-blue-500/20 text-blue-300" : "bg-purple-500/20 text-purple-300"}`}>{beat.type}</span>
-					</div>
-					<div className="flex items-center gap-2">
-						<span className="text-zinc-500">Duration</span>
-						<span className="text-zinc-300">{beat.duration}s</span>
-					</div>
-					<div className="flex items-center gap-2">
-						<span className="text-zinc-500">Asset</span>
-						{assetPath ? <span className="text-emerald-400">✓ Ready</span> : <span className="text-red-400">Missing</span>}
-					</div>
-					{beat.type === "image" && beat.imageAnimation && (
-						<div className="flex items-center gap-2">
-							<span className="text-zinc-500">Anim</span>
-							<span className="text-zinc-300">{beat.imageAnimation.replace(/_/g, " ")}</span>
-						</div>
-					)}
-					{subscribeHint && !beat.overlay && (
-						<div className="flex items-center gap-2">
-							<span className="text-zinc-500">Hint</span>
-							<span className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/20 text-amber-300">🔔 Subscribe detected</span>
-						</div>
-					)}
-					{beat.overlay && (
-						<div className="flex items-center gap-2">
-							<span className="text-zinc-500">Overlay</span>
-							{beat.overlay.type === "subscribe_cta" ? (
-								<span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-500/20 text-red-300">CTA</span>
-							) : (
-								<span className="text-zinc-300">{beat.overlay.type.replace(/_/g, " ")}</span>
-							)}
-						</div>
-					)}
-					{isActive && (
-						<div className="col-span-2 flex items-center gap-2 mt-1">
-							<span className="text-amber-400">
-								{isDownloading ? `Downloading ${beatStatus?.downloadPercent ?? 0}%` : isSearching ? "Searching..." : "Quality check..."}
-							</span>
-						</div>
-					)}
-				</div>
+			<div className="flex items-center gap-2 text-xs text-zinc-400 flex-wrap mb-3">
+				<span className="font-mono text-zinc-300">{beat.id}</span>
+				<span className="text-zinc-600">•</span>
+				<span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${beat.type === "clip" ? "bg-blue-500/20 text-blue-300" : "bg-purple-500/20 text-purple-300"}`}>{beat.type}</span>
+				<span className="text-zinc-600">•</span>
+				<span>{beat.duration.toFixed(2)}s</span>
+				<span className="text-zinc-600">•</span>
+				{assetPath ? <span className="text-emerald-400">✓ Ready</span> : <span className="text-red-400">Missing</span>}
+				{beat.type === "image" && beat.imageAnimation && (
+					<>
+						<span className="text-zinc-600">•</span>
+						<span>{beat.imageAnimation.replace(/_/g, " ")}</span>
+					</>
+				)}
+				{beat.overlay?.type === "subscribe_cta" && (
+					<>
+						<span className="text-zinc-600">•</span>
+						<span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-500/20 text-red-300">CTA</span>
+					</>
+				)}
+				{subscribeHint && !beat.overlay && (
+					<>
+						<span className="text-zinc-600">•</span>
+						<span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/20 text-amber-300">🔔 Subscribe</span>
+					</>
+				)}
+				{isActive && (
+					<>
+						<span className="text-zinc-600">•</span>
+						<span className="text-amber-400">
+							{isDownloading ? `Downloading ${beatStatus?.downloadPercent ?? 0}%` : isSearching ? "Searching..." : "Quality check..."}
+						</span>
+					</>
+				)}
 			</div>
 
 			{candidates && candidates.length > 0 && (

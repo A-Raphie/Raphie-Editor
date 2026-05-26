@@ -108,6 +108,7 @@ export default function App() {
 	const [confirm, setConfirm] = useState<ConfirmInfo | null>(null);
 	const [beatCandidates, setBeatCandidates] = useState<Record<string, any[]>>({});
 	const [selectedCandidateIndex, setSelectedCandidateIndex] = useState<Record<string, number>>({});
+	const [beatFilter, setBeatFilter] = useState<string | null>(null);
 	const [previewingAll, setPreviewingAll] = useState(false);
 	const [downloadingCandidateBeat, setDownloadingCandidateBeat] = useState<string | null>(null);
 	const [beatTextSegments, setBeatTextSegments] = useState<Record<string, string>>({});
@@ -987,14 +988,13 @@ export default function App() {
 										})()}
 									</div>
 								)}
-								<BeatTimeline beats={scenePlan.beats} selectedBeatId={selectedBeatId} onSelectBeat={setSelectedBeatId} assets={assets} thumbnails={thumbnails} beatStatuses={beatStatuses} assetValidation={assetValidation} subscribeHintBeatIds={subscribeHintBeatIds} beatCandidates={beatCandidates} selectedCandidateIndex={selectedCandidateIndex} />
+								<BeatTimeline beats={scenePlan.beats} selectedBeatId={selectedBeatId} onSelectBeat={setSelectedBeatId} assets={assets} thumbnails={thumbnails} beatStatuses={beatStatuses} assetValidation={assetValidation} subscribeHintBeatIds={subscribeHintBeatIds} beatCandidates={beatCandidates} selectedCandidateIndex={selectedCandidateIndex} filterMode={beatFilter} onFilterChange={setBeatFilter} />
 							</div>
 							{view === "editor" && selectedBeat && (
 								<div className="border-t border-zinc-800">
-									<BeatEditor
-										beat={selectedBeat}
-										thumbnail={thumbnails[selectedBeat.id]}
-										assetPath={assets[selectedBeat.id]}
+								<BeatEditor
+									beat={selectedBeat}
+									assetPath={assets[selectedBeat.id]}
 										onReDownload={handleReDownloadBeat}
 										onSaveSearch={handleSaveSearch}
 										onToggleOverlay={handleToggleOverlay}

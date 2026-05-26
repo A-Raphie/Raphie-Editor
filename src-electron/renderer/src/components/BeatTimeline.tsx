@@ -34,14 +34,26 @@ interface BeatTimelineProps {
 	subscribeHintBeatIds: Set<string>;
 	beatCandidates: Record<string, CandidatePreview[]>;
 	selectedCandidateIndex: Record<string, number>;
+	filterMode: string | null;
+	onFilterChange: (mode: string | null) => void;
 }
 
-export default function BeatTimeline({ beats, selectedBeatId, onSelectBeat, assets, thumbnails, beatStatuses, assetValidation, subscribeHintBeatIds, beatCandidates, selectedCandidateIndex }: BeatTimelineProps) {
+export default function BeatTimeline({ beats, selectedBeatId, onSelectBeat, assets, thumbnails, beatStatuses, assetValidation, subscribeHintBeatIds, beatCandidates, selectedCandidateIndex, filterMode, onFilterChange }: BeatTimelineProps) {
 	const [hoveredId, setHoveredId] = useState<string | null>(null);
 	const [subOnly, setSubOnly] = useState(false);
 
 	const subBeats = beats.filter((b) => b.overlay?.type === "subscribe_cta" || subscribeHintBeatIds?.has(b.id));
-	const displayedBeats = subOnly ? subBeats : beats;
+	const baseBeats = subOnly ? subBeats : beats;
+
+	const assetableBeats = beats.filter((b) => b.type === "clip" || b.type === "image");
+	const missingDownloadCount = assetableBeats.filter((b) => !assets?.[b.id]).length;
+	const missingThumbnailCount = assetableBeats.filter((b) => !assets?.[b.id] && !beatCandidates?.[b.id]?.length).length;
+
+	const displayedBeats = baseBeats.filter((b) => {
+		if (filterMode === "missingDownload") return !assets?.[b.id];
+		if (filterMode === "missingThumbnail") return !assets?.[b.id] && !beatCandidates?.[b.id]?.length;
+		return true;
+	});
 
 	const getBorderColor = (beat: Beat) => {
 		const validation = assetValidation?.[beat.id];
@@ -76,7 +88,27 @@ export default function BeatTimeline({ beats, selectedBeatId, onSelectBeat, asse
 							onClick={() => setSubOnly(!subOnly)}
 							className={`text-xs px-2.5 py-1 rounded-md border font-medium transition-all ${subOnly ? "bg-red-950/80 text-red-300 border-red-500/50" : "bg-zinc-800 text-zinc-400 border-zinc-700 hover:border-zinc-600 hover:text-zinc-300"}`}
 						>
-							{subBeats.length} SUB {subOnly ? "(showing)" : ""}
+							SUB
+						</button>
+					)}
+					<button
+						onClick={() => onFilterChange(filterMode === "missingDownload" ? null : "missingDownload")}
+						className={`text-xs px-2.5 py-1 rounded-md border font-medium transition-all ${filterMode === "missingDownload" ? "bg-red-950/80 text-red-300 border-red-500/50" : "bg-zinc-800 text-zinc-400 border-zinc-700 hover:border-zinc-600 hover:text-zinc-300"}`}
+					>
+						Missing Download <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold ${filterMode === "missingDownload" ? "bg-red-500/30" : "bg-red-500/20 text-red-400"}`}>{missingDownloadCount}</span>
+					</button>
+					<button
+						onClick={() => onFilterChange(filterMode === "missingThumbnail" ? null : "missingThumbnail")}
+						className={`text-xs px-2.5 py-1 rounded-md border font-medium transition-all ${filterMode === "missingThumbnail" ? "bg-orange-950/80 text-orange-300 border-orange-500/50" : "bg-zinc-800 text-zinc-400 border-zinc-700 hover:border-zinc-600 hover:text-zinc-300"}`}
+					>
+						Missing Thumbnail <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold ${filterMode === "missingThumbnail" ? "bg-orange-500/30" : "bg-orange-500/20 text-orange-400"}`}>{missingThumbnailCount}</span>
+					</button>
+					{filterMode && (
+						<button
+							onClick={() => onFilterChange(null)}
+							className="text-xs px-2 py-1 rounded-md border font-medium bg-zinc-700 text-zinc-300 border-zinc-600 hover:bg-zinc-600 transition-all"
+						>
+							✕ Clear
 						</button>
 					)}
 				</div>

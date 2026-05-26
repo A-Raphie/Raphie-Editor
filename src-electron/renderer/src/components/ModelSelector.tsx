@@ -11,6 +11,7 @@ const PLANNER_MODELS = [
 ];
 
 const CHECKER_MODELS = [
+	{ value: "none", label: "None (Manual Review)", cost: "free" },
 	{ value: "google/gemini-2.5-flash", label: "Gemini 2.5 Flash", cost: "~$3.30/hr" },
 	{ value: "openai/gpt-4o-mini", label: "GPT-4o Mini", cost: "~$0.75/hr" },
 	{ value: "google/gemini-2.5-flash-lite", label: "Gemini 2.5 Flash Lite", cost: "~$0.40/hr" },

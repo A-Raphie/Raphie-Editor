@@ -944,7 +944,7 @@ export function registerIpcHandlers(win: BrowserWindow): void {
 
       const approved: any[] = [];
 
-      if (settings.enableQualityCheckOnPreview) {
+      if (settings.enableQualityCheckOnPreview && config.qualityCheckerModel !== "none") {
         const { Logger } = await import("../../src/utils/logger");
         const logger = new Logger(config, `search-${beatId}`);
         logger.onLog = () => {};
@@ -1730,6 +1730,7 @@ const VALID_PLANNER_MODELS = [
 ];
 
 const VALID_CHECKER_MODELS = [
+  "none",
   "google/gemini-2.5-flash",
   "openai/gpt-4o-mini",
   "google/gemini-2.5-flash-lite",

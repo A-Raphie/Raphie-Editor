@@ -26,6 +26,17 @@
 
 ## Fixed Issues
 
+### Manual quality checker mode missing (Session 20)
+- **Bug**: Users could not choose to skip automated quality checking; adding a UI-only `None` option would have caused the pipeline to call OpenRouter with model ID `none`.
+- **Fix**: Added `None (Manual Review)` to checker model selectors, allowed `none` in settings validation, bypassed preview thumbnail checks, bypassed full pipeline quality checks, and accepted asset-sourcing candidates without thumbnail AI checks in manual mode.
+- **Files**: `src-electron/renderer/src/components/ModelSelector.tsx`, `src-electron/renderer/src/components/Settings.tsx`, `src-electron/main/ipc-handlers.ts`, `src/pipeline/qualityChecker.ts`, `src/pipeline/orchestrator.ts`, `src/pipeline/assetSourcer.ts`
+
+### Beat durations destroyed by scaleToAudioDuration (Session 17)
+- **Bug**: `scaleToAudioDuration()` ran AFTER `enforceBodyDurations()`, scaling all beats proportionally and destroying the 3-5s constraints. Hook section had zero code enforcement.
+- **Symptoms**: Beats were 0.1-0.4s instead of 3-5s (e.g., beat_021: 0.1755s, beat_022: 0.1826s)
+- **Fix**: Added `enforceHookDurations()` function (same merge/split logic as body). Reordered execution: `scaleToAudioDuration` → `enforceHookDurations` → `enforceBodyDurations` → `enforceBeatDistribution`. Applied in all 3 planning paths.
+- **File**: `src/pipeline/scenePlanner.ts`
+
 ### Memory warning threshold (Session 10)
 - **Bug**: Memory warning showed `< 16` but user has exactly 16.00GB
 - **Fix**: Changed to `<= 16` in `App.tsx`

@@ -38,7 +38,9 @@ async function translateQuery(
   if (!config.openrouterApiKeys?.length) return [];
   try {
     const client = createOpenRouterClient(config.openrouterApiKeys[0]);
-    const model = config.qualityCheckerModel || "google/gemma-3-4b-it";
+    const model = config.qualityCheckerModel === "none"
+      ? config.scenePlannerModel
+      : config.qualityCheckerModel || "google/gemma-3-4b-it";
     const raw = await chatCompletion(
       client,
       model,
@@ -166,6 +168,7 @@ async function sourceBeatWithThumbnails(
   let bestRejected: { candidate: any; score: number; reason: string } | null = null;
   let queriesBailed = 0;
   let translatedUsed = false;
+  const skipQualityCheck = config.qualityCheckerModel === "none";
 
   for (const query of allQueries) {
     if (signal?.aborted) break;
@@ -215,18 +218,25 @@ async function sourceBeatWithThumbnails(
 
     for (const candidate of candidates) {
       if (signal?.aborted) break;
-      if (checked >= config.maxThumbnailsPerQuery) break;
-      if (!candidate.thumbnailUrl) continue;
+      if (!skipQualityCheck && checked >= config.maxThumbnailsPerQuery) break;
+      if (!skipQualityCheck && !candidate.thumbnailUrl) continue;
 
-      const thumbPath = path.join(os.tmpdir(), `thumb_${beat.id}_${Date.now()}.jpg`);
+      let thumbPath: string | undefined;
+      let thumbResult = { accepted: true, score: 10, reason: "Manual review mode" };
       try {
-        await downloadCandidate(candidate.thumbnailUrl, thumbPath, undefined, 30_000, signal);
+        if (!skipQualityCheck) {
+          thumbPath = path.join(os.tmpdir(), `thumb_${beat.id}_${Date.now()}.jpg`);
+          await downloadCandidate(candidate.thumbnailUrl, thumbPath, undefined, 30_000, signal);
 
-        onBeatStatus?.(beat.id, "checking");
-        const thumbResult = await checkThumbnail(beat.searchQuery, thumbPath, config, logger);
+          onBeatStatus?.(beat.id, "checking");
+          thumbResult = await checkThumbnail(beat.searchQuery, thumbPath, config, logger);
+        } else {
+          onBeatStatus?.(beat.id, "checking");
+        }
 
         if (thumbResult.accepted) {
-          await logger.log(`${beat.id}: thumbnail accepted (score ${thumbResult.score}) — downloading full ${kind}`);
+          const acceptedReason = skipQualityCheck ? "manual review mode" : `score ${thumbResult.score}`;
+          await logger.log(`${beat.id}: candidate accepted (${acceptedReason}) — downloading full ${kind}`);
 
           onBeatStatus?.(beat.id, "downloading", 0);
           const onProgress = (pct: number, dl: string, total: string) => {
@@ -234,7 +244,7 @@ async function sourceBeatWithThumbnails(
             logger.log(`${beat.id}: downloading ${pct}% (${dl}/${total})`).catch(() => {});
           };
           await downloadCandidate(candidate.url, finalPath, onProgress, config.downloadTimeout, signal);
-          await deleteFile(thumbPath);
+          if (thumbPath) await deleteFile(thumbPath);
           onBeatStatus?.(beat.id, "done");
 
           if (isClip) {
@@ -279,9 +289,9 @@ async function sourceBeatWithThumbnails(
         }
         checked++;
       } catch (err: any) {
-        await logger.log(`${beat.id}: thumbnail check error: ${err.message}`);
+        await logger.log(`${beat.id}: candidate check/download error: ${err.message}`);
       } finally {
-        await deleteFile(thumbPath).catch(() => {});
+        if (thumbPath) await deleteFile(thumbPath).catch(() => {});
       }
     }
 

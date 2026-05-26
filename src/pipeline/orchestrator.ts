@@ -570,6 +570,13 @@ export class Pipeline {
     assets: AssetMapping,
     maxRounds = 5
   ): Promise<AssetMapping> {
+    if (this.config.qualityCheckerModel === "none") {
+      return this.runStep("quality_check", async () => {
+        await this.logger.log("Quality checker set to None; skipping automated quality check");
+        return { ...assets };
+      });
+    }
+
     let currentAssets = { ...assets };
     let allRejectedBeatIds: string[] = [];
 

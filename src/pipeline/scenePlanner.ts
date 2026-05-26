@@ -131,9 +131,11 @@ Generate a complete scene plan as JSON.`;
       if (config.vfxPath) {
         addSubscribeOverlays(plan, script);
       }
+      scaleToAudioDuration(plan, voDurationSeconds, logger);
+      await enforceHookDurations(plan, config.hookDuration, config.hookClipMin, config.hookClipMax, logger);
       await enforceBodyDurations(plan, config.hookDuration, config.bodyClipMin, config.bodyClipMax, logger);
       enforceBeatDistribution(plan, config.clipPercent, config.imagePercent, config.hookDuration, logger);
-      scaleToAudioDuration(plan, voDurationSeconds, logger);
+      stretchToAudioDuration(plan, voDurationSeconds, logger);
       await logger.log(
         `Scene plan generated: ${plan.beats.length} beats (${countByType(plan, "clip")} clips, ${countByType(plan, "image")} images, ${countWithOverlay(plan)} with overlays)`
       );
@@ -294,9 +296,11 @@ Generate a complete scene plan as JSON. Each segment's time range MUST be fully 
       if (config.vfxPath) {
         addSubscribeOverlays(plan, scriptText);
       }
+      scaleToAudioDuration(plan, voDurationSeconds, logger);
+      await enforceHookDurations(plan, config.hookDuration, config.hookClipMin, config.hookClipMax, logger);
       await enforceBodyDurations(plan, config.hookDuration, config.bodyClipMin, config.bodyClipMax, logger);
       enforceBeatDistribution(plan, config.clipPercent, config.imagePercent, config.hookDuration, logger);
-      scaleToAudioDuration(plan, voDurationSeconds, logger);
+      stretchToAudioDuration(plan, voDurationSeconds, logger);
       await logger.log(
         `Scene plan generated: ${plan.beats.length} beats (${countByType(plan, "clip")} clips, ${countByType(plan, "image")} images, ${countWithOverlay(plan)} with overlays)`
       );
@@ -452,9 +456,11 @@ Generate a complete scene plan as JSON for these segments only. Beats MUST cover
   if (config.vfxPath) {
     addSubscribeOverlays(plan, scriptText);
   }
+  scaleToAudioDuration(plan, voDurationSeconds, logger);
+  await enforceHookDurations(plan, config.hookDuration, config.hookClipMin, config.hookClipMax, logger);
   await enforceBodyDurations(plan, config.hookDuration, config.bodyClipMin, config.bodyClipMax, logger);
   enforceBeatDistribution(plan, config.clipPercent, config.imagePercent, config.hookDuration, logger);
-  scaleToAudioDuration(plan, voDurationSeconds, logger);
+  stretchToAudioDuration(plan, voDurationSeconds, logger);
 
   await logger.log(
     `Chunked plan complete: ${plan.beats.length} beats (${countByType(plan, "clip")} clips, ${countByType(plan, "image")} images, ${countWithOverlay(plan)} with overlays) from ${chunks.length} chunks`
@@ -542,6 +548,179 @@ const SPLIT_MODIFIERS = [
   "tracking shot",
   "low angle",
 ];
+
+async function enforceHookDurations(
+  plan: ScenePlan,
+  hookDuration: number,
+  hookClipMin: number,
+  hookClipMax: number,
+  logger: Logger
+): Promise<void> {
+  if (hookClipMin <= 0 || hookClipMax <= 0) return;
+
+  const hookBeats: { index: number; beat: Beat }[] = [];
+  for (let i = 0; i < plan.beats.length; i++) {
+    const b = plan.beats[i];
+    if (b.startTime < hookDuration && (b.type === "clip" || b.type === "image")) {
+      hookBeats.push({ index: i, beat: b });
+    }
+  }
+
+  if (hookBeats.length === 0) return;
+
+  let splitCount = 0;
+  let mergeCount = 0;
+  const indicesToRemove = new Set<number>();
+  const replacements: { index: number; beats: Beat[] }[] = [];
+  const targetAvg = (hookClipMin + hookClipMax) / 2;
+
+  let buffer: Beat[] = [];
+  let bufferDuration = 0;
+
+  const resolveType = (beats: Beat[]): "image" | "clip" => {
+    const images = beats.filter(b => b.type === "image").length;
+    const clips = beats.length - images;
+    return images >= clips ? "image" : "clip";
+  };
+
+  const flushBuffer = () => {
+    if (buffer.length === 0) return;
+
+    if (bufferDuration >= hookClipMin) {
+      const numBeats = Math.max(1, Math.round(bufferDuration / targetAvg));
+      const durPerBeat = bufferDuration / numBeats;
+      const mergedType = resolveType(buffer);
+      const merged: Beat[] = [];
+      for (let s = 0; s < numBeats; s++) {
+        const mod = SPLIT_MODIFIERS[s % SPLIT_MODIFIERS.length];
+        const srcQuery = buffer[Math.min(s, buffer.length - 1)].searchQuery || "documentary footage";
+        const query = s === 0 ? srcQuery : `${srcQuery} ${mod}`.trim();
+        const b: Beat = {
+          id: `merged_hook_${Date.now()}_${s}`,
+          startTime: 0,
+          duration: durPerBeat,
+          type: mergedType,
+          searchQuery: query,
+        };
+        if (mergedType === "image") {
+          b.imageAnimation = IMAGE_ANIMATIONS[s % IMAGE_ANIMATIONS.length];
+        }
+        if (s === 0 && buffer[0].overlay) b.overlay = buffer[0].overlay;
+        merged.push(b);
+      }
+      for (const b of buffer) indicesToRemove.add(plan.beats.indexOf(b));
+      replacements.push({ index: plan.beats.indexOf(buffer[0]), beats: merged });
+      mergeCount += buffer.length - numBeats;
+    }
+    buffer = [];
+    bufferDuration = 0;
+  };
+
+  for (const { beat } of hookBeats) {
+    if (beat.duration > hookClipMax) {
+      flushBuffer();
+      const numSplits = Math.ceil(beat.duration / hookClipMax);
+      const splitDur = beat.duration / numSplits;
+      const splitBeats: Beat[] = [];
+      for (let s = 0; s < numSplits; s++) {
+        const mod = SPLIT_MODIFIERS[s % SPLIT_MODIFIERS.length];
+        const query = mod ? `${beat.searchQuery} ${mod}` : (beat.searchQuery || "");
+        const splitBeat: Beat = {
+          id: `${beat.id}_s${s + 1}`,
+          startTime: 0,
+          duration: splitDur,
+          type: beat.type,
+          searchQuery: query,
+        };
+        if (beat.type === "image") {
+          splitBeat.imageAnimation = IMAGE_ANIMATIONS[s % IMAGE_ANIMATIONS.length];
+        }
+        if (s === 0 && beat.overlay) splitBeat.overlay = beat.overlay;
+        splitBeats.push(splitBeat);
+      }
+      indicesToRemove.add(plan.beats.indexOf(beat));
+      replacements.push({ index: plan.beats.indexOf(beat), beats: splitBeats });
+      splitCount++;
+    } else if (beat.duration < hookClipMin) {
+      buffer.push(beat);
+      bufferDuration += beat.duration;
+      if (bufferDuration >= hookClipMin) {
+        flushBuffer();
+      }
+    } else {
+      flushBuffer();
+    }
+  }
+
+  if (buffer.length > 0 && bufferDuration > 0) {
+    const lastReplacement = replacements.length > 0 ? replacements[replacements.length - 1] : null;
+    if (lastReplacement && lastReplacement.beats.length > 0) {
+      const lastBeat = lastReplacement.beats[lastReplacement.beats.length - 1];
+      const shortfall = hookClipMin - bufferDuration;
+      if (shortfall > 0 && lastBeat.duration > shortfall + hookClipMin) {
+        lastBeat.duration -= shortfall;
+        bufferDuration = hookClipMin;
+      }
+    }
+    const tailType = resolveType(buffer);
+    const numBeats = Math.max(1, Math.round(bufferDuration / targetAvg));
+    const durPerBeat = bufferDuration / numBeats;
+    const merged: Beat[] = [];
+    for (let s = 0; s < numBeats; s++) {
+      const srcQuery = buffer[Math.min(s, buffer.length - 1)].searchQuery || "documentary footage";
+      const mod = SPLIT_MODIFIERS[s % SPLIT_MODIFIERS.length];
+      const query = s === 0 ? srcQuery : `${srcQuery} ${mod}`.trim();
+      const b: Beat = {
+        id: `merged_hook_tail_${s}`,
+        startTime: 0,
+        duration: durPerBeat,
+        type: tailType,
+        searchQuery: query,
+      };
+      if (tailType === "image") {
+        b.imageAnimation = IMAGE_ANIMATIONS[s % IMAGE_ANIMATIONS.length];
+      }
+      merged.push(b);
+    }
+    for (const b of buffer) indicesToRemove.add(plan.beats.indexOf(b));
+    replacements.push({ index: plan.beats.indexOf(buffer[0]), beats: merged });
+    mergeCount += buffer.length;
+  }
+
+  if (replacements.length === 0) return;
+
+  const newBeats: Beat[] = [];
+  const replaceMap = new Map<number, Beat[]>();
+  for (const r of replacements) replaceMap.set(r.index, r.beats);
+
+  for (let i = 0; i < plan.beats.length; i++) {
+    if (indicesToRemove.has(i)) {
+      if (replaceMap.has(i)) {
+        newBeats.push(...replaceMap.get(i)!);
+      }
+      continue;
+    }
+    if (!replaceMap.has(i)) {
+      newBeats.push(plan.beats[i]);
+    }
+  }
+
+  let t = 0;
+  for (let i = 0; i < newBeats.length; i++) {
+    newBeats[i].startTime = t;
+    t += newBeats[i].duration;
+  }
+
+  plan.beats = newBeats;
+  plan.totalDurationSeconds = t;
+  for (let i = 0; i < plan.beats.length; i++) {
+    plan.beats[i].id = `beat_${String(i + 1).padStart(3, "0")}`;
+  }
+
+  await logger.log(
+    `Hook durations enforced: ${splitCount} split, ${mergeCount} merged (target: ${hookClipMin}-${hookClipMax}s)`
+  );
+}
 
 async function enforceBodyDurations(
   plan: ScenePlan,
@@ -786,6 +965,28 @@ async function enforceBeatDistribution(plan: ScenePlan, clipPercent: number, ima
   if (parts.length > 0) {
     await logger.log(`Distribution enforced — ${parts.join(", ")}`);
   }
+}
+
+function stretchToAudioDuration(plan: ScenePlan, voDurationSeconds: number, logger: { log: (msg: string) => void }): void {
+  const diff = voDurationSeconds - plan.totalDurationSeconds;
+  if (Math.abs(diff) < 0.01) return;
+
+  if (Math.abs(diff) < 1.0) {
+    plan.beats[plan.beats.length - 1].duration += diff;
+  } else {
+    const scale = voDurationSeconds / plan.totalDurationSeconds;
+    for (const beat of plan.beats) {
+      beat.duration *= scale;
+    }
+  }
+
+  let t = 0;
+  for (const beat of plan.beats) {
+    beat.startTime = t;
+    t += beat.duration;
+  }
+  plan.totalDurationSeconds = t;
+  logger.log(`Duration stretched to VO: ${voDurationSeconds.toFixed(1)}s (adjusted ${diff >= 0 ? "+" : ""}${diff.toFixed(1)}s)`);
 }
 
 function validateScenePlan(plan: ScenePlan, forbiddenWords: string[], genericFallbacks: string[]): void {

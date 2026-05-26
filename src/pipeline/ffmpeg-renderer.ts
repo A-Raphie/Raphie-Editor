@@ -683,22 +683,6 @@ async function muxAudio(
     return;
   }
 
-  let overlayAudioPath: string | null = null;
-  if (hasOverlay) {
-    overlayAudioPath = path.join(segmentDir, "overlay_audio.aac");
-    try {
-      await runFFmpeg(
-        config.ffmpegPath,
-        ["-y", "-i", config.vfxPath, "-vn", "-acodec", "aac", overlayAudioPath],
-        logger,
-        30_000,
-        signal
-      );
-    } catch {
-      overlayAudioPath = null;
-    }
-  }
-
   const filterParts: string[] = [];
   const inputArgs = ["-y", "-i", videoPath];
   let inputIdx = 1;
@@ -710,10 +694,10 @@ async function muxAudio(
   if (musicPath) inputArgs.push("-i", path.resolve(musicPath));
 
   const overlayInputIndices: number[] = [];
-  if (overlayAudioPath) {
+  if (hasOverlay) {
     for (let i = 0; i < overlayBeats.length; i++) {
       overlayInputIndices.push(inputIdx++);
-      inputArgs.push("-i", overlayAudioPath);
+      inputArgs.push("-i", config.vfxPath);
     }
   }
 
@@ -729,7 +713,7 @@ async function muxAudio(
     mixInputs.push(`[${musicLabel}]`);
   }
 
-  if (overlayAudioPath && overlayInputIndices.length > 0) {
+  if (hasOverlay && overlayInputIndices.length > 0) {
     for (let i = 0; i < overlayInputIndices.length; i++) {
       const delayMs = Math.round(overlayBeats[i].startTime * 1000);
       const label = `ov${i}`;
