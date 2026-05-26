@@ -56,9 +56,9 @@ App.tsx (root — all state lives here)
 
 ### ModelSelector (`ModelSelector.tsx`)
 **Props:** `settings, onChange`
-- Dropdown for planner model (6 models: gemma-3-4b-it, deepseek-v4-flash, etc.) with /hr cost labels
-- Dropdown for checker model (4 models) with /hr cost labels
-- Cost shown inline in dropdown options
+- Dropdown for planner model (6 models) with /hr cost labels
+- Dropdown for checker model (5 models including None/Manual Review) with /hr cost labels
+- Imports PLANNER_MODELS and CHECKER_MODELS from shared/types.ts
 - Inline in editor toolbar
 
 ### BeatTimeline (`BeatTimeline.tsx`, 209 lines)

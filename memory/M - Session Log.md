@@ -8,14 +8,25 @@
 - Skipped automated pipeline quality checking when checker is `none`, passing sourced assets through for manual review
 - Skipped preview thumbnail AI checks when checker is `none`, returning candidates directly for manual selection
 - Made asset sourcing accept candidates without thumbnail AI checks in manual review mode
+- Moved `None (Manual Review)` to bottom of checker list (most expensive first, free last — matches planner ordering)
+- Consolidated `PLANNER_MODELS` and `CHECKER_MODELS` into `shared/types.ts` — both `ModelSelector` and `Settings` import from single source, can't drift
+- Removed uptime feature entirely — OpenRouter API `uptime_last_5m` always returns ~100% (measures health checks, not real reliability). Removed from ModelSelector, IPC handlers, preload, and IPC_CHANNELS
 
 ### Files Changed
-- `src-electron/renderer/src/components/ModelSelector.tsx`: Added checker `None (Manual Review)` option
-- `src-electron/renderer/src/components/Settings.tsx`: Added checker `None (Manual Review)` option
-- `src-electron/main/ipc-handlers.ts`: Added valid model support and preview bypass for `none`
-- `src/pipeline/qualityChecker.ts`: Added no-op acceptance path for `none`
+- `src-electron/shared/types.ts`: Added `ModelOption` type, `PLANNER_MODELS`, `CHECKER_MODELS` exports; removed `GET_MODEL_UPTIME` from IPC_CHANNELS
+- `src-electron/renderer/src/components/ModelSelector.tsx`: Imports shared model lists, removed uptime state/useEffect/warning dot/badge
+- `src-electron/renderer/src/components/Settings.tsx`: Imports shared model lists, replaced hardcoded `<option>` tags with `.map()`
+- `src-electron/main/ipc-handlers.ts`: Added `"none"` to `VALID_CHECKER_MODELS`, added preview bypass for `none`, removed `GET_MODEL_UPTIME` handler
+- `src/pipeline/qualityChecker.ts`: Added no-op acceptance path for `none` in both `qualityCheckAssets` and `checkThumbnail`
 - `src/pipeline/orchestrator.ts`: Added quality-check step skip for `none`
-- `src/pipeline/assetSourcer.ts`: Added manual-review candidate acceptance path while keeping query translation functional
+- `src/pipeline/assetSourcer.ts`: Added manual-review candidate acceptance path, query translation falls back to planner model when checker is `none`
+- `src-electron/preload/index.ts`: Removed `getModelUptime`
+
+### Git Commits
+- `c188a86` Session 20: manual quality checker mode
+- `73f8a34` Sort manual checker option last
+- `d50257d` Consolidate model lists into shared/types.ts
+- `49719e4` Remove uptime feature — misleading API metric
 
 ---
 

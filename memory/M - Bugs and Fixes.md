@@ -26,6 +26,16 @@
 
 ## Fixed Issues
 
+### Uptime feature showed misleading 100% (Session 20)
+- **Bug**: OpenRouter `uptime_last_5m` API metric always returned ~100% even when real reliability was ~92%. The API measures endpoint health checks, not actual request success rate.
+- **Fix**: Removed entire uptime feature — `uptimeColor`, `owlUptime` state, warning dot, badge from ModelSelector; `GET_MODEL_UPTIME` handler from ipc-handlers; `getModelUptime` from preload; `GET_MODEL_UPTIME` from IPC_CHANNELS.
+- **Files**: `src-electron/renderer/src/components/ModelSelector.tsx`, `src-electron/main/ipc-handlers.ts`, `src-electron/preload/index.ts`, `src-electron/shared/types.ts`
+
+### Model lists drifting between Settings and ModelSelector (Session 20)
+- **Bug**: Model options were hardcoded separately in `ModelSelector.tsx` (arrays) and `Settings.tsx` (HTML `<option>` tags). Adding a model to one but not the other caused drift.
+- **Fix**: Consolidated `PLANNER_MODELS` and `CHECKER_MODELS` into `shared/types.ts` with `ModelOption` type. Both components import from single source.
+- **Files**: `src-electron/shared/types.ts`, `src-electron/renderer/src/components/ModelSelector.tsx`, `src-electron/renderer/src/components/Settings.tsx`
+
 ### Manual quality checker mode missing (Session 20)
 - **Bug**: Users could not choose to skip automated quality checking; adding a UI-only `None` option would have caused the pipeline to call OpenRouter with model ID `none`.
 - **Fix**: Added `None (Manual Review)` to checker model selectors, allowed `none` in settings validation, bypassed preview thumbnail checks, bypassed full pipeline quality checks, and accepted asset-sourcing candidates without thumbnail AI checks in manual mode.

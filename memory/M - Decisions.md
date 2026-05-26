@@ -23,6 +23,10 @@
 - **Quality checker runs on** Preview (SEARCH_BEAT_CANDIDATES) and Re-download (RE_DOWNLOAD_BEAT) but NOT on Download (DOWNLOAD_SELECTED_CANDIDATE) or Download All
 - **User targets 2+ hour video capability** — all reliability tuning (chunk size, concurrency) aimed at this
 - **`pipeline.run()` accepts optional 5th `srtPath` param** but RUN_PIPELINE doesn't pass it; only RENDER_VIDEO passes srtPath
+- **Model lists live in `shared/types.ts`** — single source of truth for both ModelSelector and Settings dropdowns, prevents drift
+- **Model ordering**: most expensive first, free last — applies to both planner and checker lists
+- **`qualityCheckerModel: "none"`** means manual review mode — skips all AI quality checks in pipeline, preview, and asset sourcing
+- **Uptime feature removed** — OpenRouter API `uptime_last_5m` is misleading (measures health checks, not real reliability). Always showed ~100% regardless of actual success rate.
 
 ### Rendering
 - **Segment length from settings**: `config.segmentLength ?? 900` — no longer hardcoded
@@ -82,8 +86,9 @@ cp -R dist/mac-arm64/Raphie\'s\ Editor.app /Applications/
 ```
 
 ### Models
-- Scene planner models (6 in dropdown): includes `google/gemma-3-4b-it` as cheapest (~$0.02/hr)
-- Quality checker models (4 in dropdown)
+- Scene planner models (6 in dropdown): Claude Sonnet 4 → Haiku 4.5 → DeepSeek V4 Flash → Qwen3 235B → Gemma 3 4B → Owl Alpha (most expensive to free)
+- Quality checker models (5 in dropdown): Gemini 2.5 Flash → GPT-4o Mini → Gemini 2.5 Flash Lite → Gemma 3 4B → None/Manual Review (most expensive to free)
+- Model lists defined once in `shared/types.ts` as `PLANNER_MODELS` and `CHECKER_MODELS` — imported by both ModelSelector and Settings
 - Model costs displayed as "/hr" using 75 planner chunks/hr and 3,000 checker calls/hr benchmarks
 - Checker is the bigger cost driver than planner (~35x more LLM calls per video)
 - OpenRouter `openrouter/owl-alpha` is free but unreliable (502s) — not suitable for long videos

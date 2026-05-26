@@ -41,8 +41,8 @@
 | `components/CandidatePicker.tsx` | Candidate thumbnail grid with video preview |
 | `components/PlanningView.tsx` | Loading/progress view during scene plan generation |
 | `components/ProjectsView.tsx` | Project list with rename/delete |
-| `components/Settings.tsx` | Tabbed settings (API Keys, General, Advanced) — includes Quality Check on Preview toggle, /hr model pricing |
-| `components/ModelSelector.tsx` | Model dropdowns — 6 planner models, 4 checker models, /hr cost labels |
+| `components/Settings.tsx` | Tabbed settings (API Keys, General, Advanced) — imports model lists from shared/types.ts, Quality Check on Preview toggle, /hr model pricing |
+| `components/ModelSelector.tsx` | Model dropdowns — imports PLANNER_MODELS/CHECKER_MODELS from shared/types.ts, /hr cost labels |
 | `components/ErrorModal.tsx` | Error overlay |
 | `components/ConfirmModal.tsx` | Confirm dialog |
 | `components/ProgressBar.tsx` | Standalone progress bar (batch queue) |
@@ -52,4 +52,4 @@
 ## Shared (`src-electron/shared/`)
 | File | Purpose |
 |------|---------|
-| `types.ts` | AppSettings, SavedProject, IPC_CHANNELS, CandidatePreview, PipelineStateInfo |
+| `types.ts` | AppSettings, SavedProject, IPC_CHANNELS, CandidatePreview, PipelineStateInfo, ModelOption, PLANNER_MODELS, CHECKER_MODELS |
