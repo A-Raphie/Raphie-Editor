@@ -58,7 +58,7 @@ function ProjectCard({ project, onOpen, onRename, onDelete, onAddToQueue }: Proj
 
 	return (
 		<div className="bg-zinc-800/60 border border-zinc-700/60 rounded-xl p-5 hover:border-zinc-600 hover:bg-zinc-800/80 hover:shadow-lg transition-all duration-200 group">
-			<div className="flex items-start justify-between mb-4">
+			<div className="flex items-start justify-between mb-3">
 				<div className="flex-1 min-w-0 mr-3">
 					{editing ? (
 						<input
@@ -75,14 +75,14 @@ function ProjectCard({ project, onOpen, onRename, onDelete, onAddToQueue }: Proj
 					) : (
 						<h3 className="text-base font-semibold text-zinc-200 truncate cursor-pointer hover:text-white transition-colors" onDoubleClick={() => setEditing(true)} title="Double-click to rename">{project.name}</h3>
 					)}
-					<p className="text-xs text-zinc-500 mt-1.5 truncate">{scriptName}</p>
+					<p className="text-xs text-zinc-500 mt-1 truncate">{scriptName}</p>
+					<p className="text-xs text-zinc-600 mt-1">
+						{project.scenePlan?.totalDurationSeconds != null && <>⏱ {Math.floor(project.scenePlan.totalDurationSeconds / 60)}:{String(Math.floor(project.scenePlan.totalDurationSeconds % 60)).padStart(2, "0")} · </>}
+						{formatDate(project.updatedAt)}
+					</p>
 				</div>
 				<span className={`text-[10px] uppercase tracking-wider font-medium px-2.5 py-1 rounded-md border flex-shrink-0 ${statusBadgeColor(project.status)}`}>{statusLabel(project.status)}</span>
 			</div>
-			<p className="text-xs text-zinc-600 mb-2">
-				{project.scenePlan?.totalDurationSeconds != null && <>⏱ {Math.floor(project.scenePlan.totalDurationSeconds / 60)}:{String(Math.floor(project.scenePlan.totalDurationSeconds % 60)).padStart(2, "0")} · </>}
-				{formatDate(project.updatedAt)}
-			</p>
 			<div className="flex gap-1.5 justify-end opacity-0 group-hover:opacity-100 transition-all">
 					<button className="px-2.5 py-1.5 text-xs rounded-lg bg-zinc-700 hover:bg-zinc-600 text-zinc-300 font-medium transition-colors" onClick={() => setEditing(true)}>Rename</button>
 					{confirmDelete ? (

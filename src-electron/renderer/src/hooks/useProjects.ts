@@ -104,6 +104,7 @@ export function useProjects(deps: UseProjectsDeps) {
 		setRenderingError(null);
 		setRegenerating(false);
 		setOutputPath(project.outputPath ?? null);
+		setAssets({});
 		setThumbnails({});
 		setBeatStatuses({});
 		setAssetValidation({});
