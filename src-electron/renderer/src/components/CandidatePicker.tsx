@@ -10,19 +10,36 @@ interface CandidatePickerProps {
 	hasAsset: boolean;
 }
 
+const PAGE_SIZE = 5;
+
 export default function CandidatePicker({ candidates, selectedIndex, onSelect, onDownload, isDownloading, hasAsset }: CandidatePickerProps) {
+	const [page, setPage] = useState(0);
 	const [fullscreenIndex, setFullscreenIndex] = useState<number | null>(null);
 	const videoRefs = useRef<Record<number, HTMLVideoElement>>({});
 
+	const totalPages = Math.ceil(candidates.length / PAGE_SIZE);
+
 	useEffect(() => {
-		const handleEsc = (e: KeyboardEvent) => {
-			if (e.key === "Escape") setFullscreenIndex(null);
+		setPage(0);
+	}, [candidates.length]);
+
+	useEffect(() => {
+		const handleKey = (e: KeyboardEvent) => {
+			if (e.key === "Escape") { setFullscreenIndex(null); return; }
+			if (fullscreenIndex !== null) return;
+			if (e.key === "ArrowRight" && page < totalPages - 1) setPage((p) => p + 1);
+			if (e.key === "ArrowLeft" && page > 0) setPage((p) => p - 1);
 		};
-		window.addEventListener("keydown", handleEsc);
-		return () => window.removeEventListener("keydown", handleEsc);
-	}, []);
+		window.addEventListener("keydown", handleKey);
+		return () => window.removeEventListener("keydown", handleKey);
+	}, [page, totalPages, fullscreenIndex]);
 
 	if (candidates.length === 0) return null;
+
+	const start = page * PAGE_SIZE;
+	const end = Math.min(start + PAGE_SIZE, candidates.length);
+	const visible = candidates.slice(start, end);
+	const showPagination = candidates.length > PAGE_SIZE;
 
 	const fsCandidate = fullscreenIndex !== null ? candidates[fullscreenIndex] : null;
 	const fsIsClip = fsCandidate?.type === "clip";
@@ -42,20 +59,42 @@ export default function CandidatePicker({ candidates, selectedIndex, onSelect, o
 						{isDownloading ? "Downloading..." : hasAsset ? "Downloaded" : "Download This"}
 					</button>
 				</div>
+				{showPagination && (
+					<div className="flex items-center justify-center gap-2 mb-2">
+						<button
+							onClick={() => setPage((p) => Math.max(0, p - 1))}
+							disabled={page === 0}
+							className={`w-6 h-6 rounded flex items-center justify-center text-xs font-bold transition-all ${page === 0 ? "bg-zinc-800 text-zinc-700 cursor-default" : "bg-zinc-700 hover:bg-zinc-600 text-zinc-300"}`}
+						>
+							‹
+						</button>
+						<span className="text-[10px] text-zinc-500 font-medium tabular-nums min-w-[80px] text-center">
+							{start + 1}–{end} of {candidates.length}
+						</span>
+						<button
+							onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+							disabled={page >= totalPages - 1}
+							className={`w-6 h-6 rounded flex items-center justify-center text-xs font-bold transition-all ${page >= totalPages - 1 ? "bg-zinc-800 text-zinc-700 cursor-default" : "bg-zinc-700 hover:bg-zinc-600 text-zinc-300"}`}
+						>
+							›
+						</button>
+					</div>
+				)}
 				<div className="grid grid-cols-5 gap-2">
-					{candidates.map((candidate, i) => {
-						const isSelected = i === selectedIndex;
+					{visible.map((candidate, i) => {
+						const globalIndex = start + i;
+						const isSelected = globalIndex === selectedIndex;
 						const isClip = candidate.type === "clip";
 						return (
 							<div
-								key={i}
-								onClick={() => onSelect(i)}
+								key={globalIndex}
+								onClick={() => onSelect(globalIndex)}
 								className={`relative rounded-lg overflow-hidden border-2 cursor-pointer transition-all ${isSelected ? "border-amber-500 shadow-md shadow-amber-500/20" : "border-zinc-700 hover:border-zinc-500"}`}
 								style={{ aspectRatio: "16/9" }}
 							>
 								{isClip && candidate.previewUrl ? (
 									<video
-										ref={(el) => { if (el) videoRefs.current[i] = el; }}
+										ref={(el) => { if (el) videoRefs.current[globalIndex] = el; }}
 										src={candidate.previewUrl}
 										poster={candidate.thumbnailUrl || undefined}
 										preload="metadata"
@@ -79,7 +118,7 @@ export default function CandidatePicker({ candidates, selectedIndex, onSelect, o
 									</span>
 								</div>
 								<button
-									onClick={(e) => { e.stopPropagation(); setFullscreenIndex(i); }}
+									onClick={(e) => { e.stopPropagation(); setFullscreenIndex(globalIndex); }}
 									className="absolute top-1 right-1 w-4 h-4 rounded bg-black/50 hover:bg-black/70 flex items-center justify-center transition-colors"
 								>
 									<span className="text-[8px] text-white">⛶</span>
