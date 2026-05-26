@@ -159,6 +159,7 @@ RULES:
   enableQualityCheckOnPreview: true,
   renderer: "remotion",
   tempCleanupDays: 1,
+  rulesVersion: 1,
 };
 
 function buildConfigOverrides(settings: AppSettings, projectId?: string, args?: any) {
@@ -1777,6 +1778,17 @@ function loadSettings(): AppSettings {
     !settings.scenePlannerRules.includes("EXAMPLES")
   ) {
     settings.scenePlannerRules = DEFAULT_PLANNER_RULES;
+    migrated = true;
+  }
+
+  const CURRENT_RULES_VERSION = DEFAULT_SETTINGS.rulesVersion;
+  const savedVersion = settings.rulesVersion ?? 0;
+  if (savedVersion < CURRENT_RULES_VERSION) {
+    settings.searchQueryRules = DEFAULT_SETTINGS.searchQueryRules;
+    settings.scenePlannerRules = DEFAULT_SETTINGS.scenePlannerRules;
+    settings.contentRules = DEFAULT_SETTINGS.contentRules;
+    settings.qualityCheckPrompt = DEFAULT_SETTINGS.qualityCheckPrompt;
+    settings.rulesVersion = CURRENT_RULES_VERSION;
     migrated = true;
   }
 

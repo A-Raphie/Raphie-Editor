@@ -136,6 +136,7 @@ export interface AppSettings {
   enableQualityCheckOnPreview?: boolean;
   srtChunkSize?: number;
   srtChunkDelayMs?: number;
+  rulesVersion?: number;
 }
 
 export interface PipelineProgress {

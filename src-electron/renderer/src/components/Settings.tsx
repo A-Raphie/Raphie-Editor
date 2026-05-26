@@ -147,8 +147,8 @@ export default function Settings({ settings, onSave, onClose }: SettingsProps) {
 								</div>
 								<div className="grid grid-cols-2 gap-4">
 									<div>
-										<label className={labelCls}>Search Depth</label>
-										<p className="text-[10px] text-zinc-600 mb-1">How many stock photos/videos to preview per beat. 5 is fast, 15 is thorough.</p>
+										<label className={labelCls}>Candidate Checks</label>
+										<p className="text-[10px] text-zinc-600 mb-1">How many candidates to AI-check per beat. Higher = more thorough but slower.</p>
 										<input type="number" min={1} max={30} value={form.maxThumbnailsPerQuery ?? 5} onChange={(e) => setForm({ ...form, maxThumbnailsPerQuery: parseInt(e.target.value) || 5 })} className={inputCls} />
 									</div>
 									<div>

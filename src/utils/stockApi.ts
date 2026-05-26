@@ -10,6 +10,22 @@ const execFileAsync = promisify(execFile);
 let ffprobeBin = "ffprobe";
 let minResolution = 1920;
 
+const PELS_LIMIT = 190;
+const PELS_WINDOW_MS = 60 * 60 * 1000;
+const pexelsTimestamps: number[] = [];
+
+async function throttlePexels(): Promise<void> {
+  const now = Date.now();
+  while (pexelsTimestamps.length > 0 && pexelsTimestamps[0] < now - PELS_WINDOW_MS) {
+    pexelsTimestamps.shift();
+  }
+  if (pexelsTimestamps.length >= PELS_LIMIT) {
+    const waitMs = pexelsTimestamps[0] + PELS_WINDOW_MS - now + 1000;
+    await new Promise((r) => setTimeout(r, Math.max(waitMs, 1000)));
+  }
+  pexelsTimestamps.push(Date.now());
+}
+
 export function setBinPaths(ffprobe: string): void {
   ffprobeBin = ffprobe;
 }
@@ -195,6 +211,7 @@ export async function searchAllVideoCandidates(
 ): Promise<Array<{ url: string; previewUrl: string; thumbnailUrl: string; duration: number; width: number; height: number; source: string }>> {
   const candidates: any[] = [];
   if (pexelsApiKey) try {
+    await throttlePexels();
     const { videos } = await httpGet(
       `https://api.pexels.com/videos/search?query=${encodeURIComponent(query)}&per_page=15&size=large`,
       { Authorization: pexelsApiKey }
@@ -261,6 +278,7 @@ export async function searchAllImageCandidates(
 ): Promise<Array<{ url: string; thumbnailUrl: string; width: number; height: number; source: string }>> {
   const candidates: any[] = [];
   if (pexelsApiKey) try {
+    await throttlePexels();
     const { photos } = await httpGet(
       `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=15`,
       { Authorization: pexelsApiKey }

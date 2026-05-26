@@ -30,8 +30,11 @@ interface BatchQueueItem {
 	scriptPath: string;
 	voPath: string;
 	musicPath?: string;
+	srtPath?: string;
 	status: "pending" | "running" | "completed" | "failed";
 	outputPath?: string;
+	progress?: PipelineProgress | null;
+	errorMessage?: string;
 }
 
 interface BeatStatus {
@@ -130,6 +133,31 @@ export default function App() {
 	}, []);
 
 	useEffect(() => {
+		const handler = (e: KeyboardEvent) => {
+			if (view !== "editor" || !scenePlan?.beats?.length) return;
+			const tag = (e.target as HTMLElement)?.tagName;
+			if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+			const beats = scenePlan.beats;
+			if (e.key === "Escape") {
+				setSelectedBeatId(null);
+				return;
+			}
+			if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+			e.preventDefault();
+			const idx = beats.findIndex((b: any) => b.id === selectedBeatId);
+			if (e.key === "ArrowRight") {
+				if (idx < 0 || idx >= beats.length - 1) setSelectedBeatId(beats[0].id);
+				else setSelectedBeatId(beats[idx + 1].id);
+			} else {
+				if (idx <= 0) setSelectedBeatId(beats[beats.length - 1].id);
+				else setSelectedBeatId(beats[idx - 1].id);
+			}
+		};
+		window.addEventListener("keydown", handler);
+		return () => window.removeEventListener("keydown", handler);
+	}, [view, scenePlan, selectedBeatId]);
+
+	useEffect(() => {
 		logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
 	}, [logs.length]);
 
@@ -207,6 +235,9 @@ export default function App() {
 			const activePid = activePipelineProjectIdRef.current;
 			if (activePid !== currentProjectIdRef.current) return;
 			setProgress(p);
+			if (batchCurrentIndex >= 0) {
+				setBatchQueue((q) => q.map((it, idx) => idx === batchCurrentIndex ? { ...it, progress: p } : it));
+			}
 		});
 		const unsubComplete = async (path: string) => {
 			const activePid = activePipelineProjectIdRef.current;
@@ -417,23 +448,24 @@ export default function App() {
 		setBatchQueue((q) => [...q, { id: project.id, scriptPath: project.scriptPath ?? "", voPath: project.voPath, musicPath: project.musicPath, status: "pending" }]);
 	}, []);
 
-	const handleStartBatchQueue = useCallback(async () => {
+	const handleStartBatchQueue = useCallback(async (startIndex = 0) => {
 		if (batchQueue.length === 0) return;
-		setBatchCurrentIndex(0);
+		setBatchCurrentIndex(startIndex);
 		setView("rendering");
-		for (let i = 0; i < batchQueue.length; i++) {
+		for (let i = startIndex; i < batchQueue.length; i++) {
+			if (batchQueue[i].status === "completed") continue;
 			const item = batchQueue[i];
 			activePipelineProjectIdRef.current = item.id;
-			setBatchQueue((q) => q.map((it, idx) => idx === i ? { ...it, status: "running" } : it));
+			setBatchQueue((q) => q.map((it, idx) => idx === i ? { ...it, status: "running", progress: null, errorMessage: undefined } : it));
 			setBatchCurrentIndex(i);
 			setLogs([]);
 			setError(null);
 			setRenderingError(null);
 			try {
-				const output = await window.api.runPipeline({ scriptPath: item.scriptPath, voPath: item.voPath, musicPath: item.musicPath, projectId: item.id });
-				setBatchQueue((q) => q.map((it, idx) => idx === i ? { ...it, status: "completed", outputPath: output } : it));
-			} catch (err) {
-				setBatchQueue((q) => q.map((it, idx) => idx === i ? { ...it, status: "failed" } : it));
+				const output = await window.api.runPipeline({ scriptPath: item.scriptPath, voPath: item.voPath, musicPath: item.musicPath, srtPath: item.srtPath, projectId: item.id });
+				setBatchQueue((q) => q.map((it, idx) => idx === i ? { ...it, status: "completed", outputPath: output, progress: null } : it));
+			} catch (err: any) {
+				setBatchQueue((q) => q.map((it, idx) => idx === i ? { ...it, status: "failed", errorMessage: err?.message || String(err), progress: null } : it));
 			}
 		}
 		setBatchCurrentIndex(-1);
@@ -838,14 +870,33 @@ export default function App() {
 							) : (
 								<div className="space-y-3">
 									{batchQueue.map((item, idx) => (
-										<div key={item.id} className={`flex items-center gap-4 p-4 rounded-xl border transition-all ${idx === batchCurrentIndex ? "border-blue-500 bg-blue-500/10 shadow-lg shadow-blue-500/10" : item.status === "completed" ? "border-emerald-500/50 bg-emerald-500/5" : item.status === "failed" ? "border-red-500/50 bg-red-500/5" : "border-zinc-700/60 bg-zinc-800/40 hover:bg-zinc-800/60"}`}>
-											<span className="text-zinc-500 text-sm font-medium w-6">{idx + 1}.</span>
-											<span className="text-zinc-200 text-sm flex-1 truncate font-medium">{item.scriptPath.split("/").pop()}</span>
-											<span className={`text-[10px] uppercase tracking-wider font-semibold px-2.5 py-1 rounded-md ${item.status === "pending" ? "bg-zinc-700/50 text-zinc-400 border border-zinc-600/30" : item.status === "running" ? "bg-blue-500/20 text-blue-400 border border-blue-500/30" : item.status === "completed" ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30" : "bg-red-500/20 text-red-400 border border-red-500/30"}`}>{item.status}</span>
-											{item.status === "pending" && <button onClick={() => setBatchQueue((q) => q.filter((_, i) => i !== idx))} className="w-7 h-7 rounded-lg flex items-center justify-center text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-all">✕</button>}
-											{item.status === "completed" && item.outputPath && <button onClick={() => window.api.openInFinder(item.outputPath!)} className="w-7 h-7 rounded-lg flex items-center justify-center text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700/50 transition-all text-sm">📂</button>}
+										<div key={item.id} className={`p-4 rounded-xl border transition-all ${idx === batchCurrentIndex ? "border-blue-500 bg-blue-500/10 shadow-lg shadow-blue-500/10" : item.status === "completed" ? "border-emerald-500/50 bg-emerald-500/5" : item.status === "failed" ? "border-red-500/50 bg-red-500/5" : "border-zinc-700/60 bg-zinc-800/40 hover:bg-zinc-800/60"}`}>
+											<div className="flex items-center gap-4">
+												<span className="text-zinc-500 text-sm font-medium w-6">{idx + 1}.</span>
+												<span className="text-zinc-200 text-sm flex-1 truncate font-medium">{item.scriptPath.split("/").pop()}</span>
+												<span className={`text-[10px] uppercase tracking-wider font-semibold px-2.5 py-1 rounded-md ${item.status === "pending" ? "bg-zinc-700/50 text-zinc-400 border border-zinc-600/30" : item.status === "running" ? "bg-blue-500/20 text-blue-400 border border-blue-500/30" : item.status === "completed" ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30" : "bg-red-500/20 text-red-400 border border-red-500/30"}`}>{item.status}</span>
+												{item.status === "pending" && <button onClick={() => setBatchQueue((q) => q.filter((_, i) => i !== idx))} className="w-7 h-7 rounded-lg flex items-center justify-center text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-all">✕</button>}
+												{item.status === "failed" && <button onClick={() => handleStartBatchQueue(idx)} className="px-2 py-1 rounded-md text-[10px] font-semibold bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30 transition-all">Retry</button>}
+												{item.status === "completed" && item.outputPath && <button onClick={() => window.api.openInFinder(item.outputPath!)} className="w-7 h-7 rounded-lg flex items-center justify-center text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700/50 transition-all text-sm">📂</button>}
+											</div>
+											{item.status === "running" && item.progress && (
+												<div className="mt-2 space-y-1">
+													<div className="h-2 bg-zinc-700 rounded-full overflow-hidden">
+														<div className="h-full bg-gradient-to-r from-blue-500 to-cyan-400 transition-all rounded-full" style={{ width: `${item.progress.percent}%` }} />
+													</div>
+													<p className="text-xs text-zinc-500">{item.progress.message}</p>
+												</div>
+											)}
+											{item.status === "failed" && item.errorMessage && (
+												<p className="mt-2 text-xs text-red-400/70 truncate">{item.errorMessage}</p>
+											)}
 										</div>
 									))}
+									{batchQueue.length > 0 && (() => {
+										const done = batchQueue.filter((q) => q.status === "completed").length;
+										const failed = batchQueue.filter((q) => q.status === "failed").length;
+										return <p className="text-xs text-zinc-500">{done}/{batchQueue.length} complete{failed > 0 ? `, ${failed} failed` : ""}</p>;
+									})()}
 								</div>
 							)}
 							{batchQueue.length > 0 && batchCurrentIndex === -1 && (
@@ -939,7 +990,25 @@ export default function App() {
 											</>
 										) : (
 											<button
-												onClick={() => setConfirm({ title: "Render Video?", message: "This will start rendering the final video using the current assets. Make sure all assets are downloaded and checked.", confirmLabel: "Render", onConfirm: () => { setConfirm(null); handleRenderVideo("render"); } })}
+												onClick={() => {
+												const assetableBeats = scenePlan.beats.filter((b: any) => b.type === "clip" || b.type === "image");
+												const missingCount = assetableBeats.filter((b: any) => !assets[b.id]).length;
+												const totalBeats = scenePlan.beats.length;
+												const estMin = Math.round(totalBeats * 0.5);
+												const lines = [
+													`This will start rendering the final video using the current assets.`,
+													``,
+													`${totalBeats} beats (${assetableBeats.length} clips/images)`,
+												];
+												if (missingCount > 0) lines.push(`⚠ ${missingCount} missing asset${missingCount > 1 ? "s" : ""} (will use lower-third fallback)`);
+												if (missingCount === 0) lines.push(`All assets ready`);
+												lines.push(``, `Estimated time: ~${estMin} min`);
+												if (settings.qualityCheckerModel !== "none") {
+													const checks = assetableBeats.length * (settings.maxThumbnailsPerQuery ?? 5);
+													lines.push(`~${checks} thumbnail AI checks`);
+												}
+												setConfirm({ title: "Render Video?", message: lines.join("\n"), confirmLabel: "Render", onConfirm: () => { setConfirm(null); handleRenderVideo("render"); } });
+											}}
 												disabled={checkingAssets || previewingAll}
 												className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all shadow-sm ${checkingAssets || previewingAll ? "bg-zinc-700 text-zinc-500 cursor-wait" : "bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-black shadow-md hover:shadow-lg"}`}
 											>
