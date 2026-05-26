@@ -1,73 +1,27 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import type { AppSettings, SavedProject, PipelineProgress, PipelineStateInfo } from "../shared/types";
+import type { AppSettings, SavedProject, PipelineProgress, PipelineStateInfo } from "../../shared/types";
+import { PLANNER_MODELS, CHECKER_MODELS } from "../../shared/types";
 import Sidebar from "./components/Sidebar";
 import DropZone from "./components/DropZone";
 import PlanningView from "./components/PlanningView";
 import ProjectsView from "./components/ProjectsView";
-import ModelSelector from "./components/ModelSelector";
 import BeatTimeline from "./components/BeatTimeline";
 import BeatEditor from "./components/BeatEditor";
 import Settings from "./components/Settings";
 import ErrorModal from "./components/ErrorModal";
 import ConfirmModal from "./components/ConfirmModal";
-
-interface ErrorInfo {
-	title: string;
-	message: string;
-	actionLabel?: string;
-	onAction?: () => void;
-}
+import { useBatchQueue } from "./hooks/useBatchQueue";
+import { useProjects } from "./hooks/useProjects";
+import { usePipeline, fmtElapsed } from "./hooks/usePipeline";
+import type { ErrorInfo } from "./hooks/usePipeline";
+import { useAssets } from "./hooks/useAssets";
+import { useBeatCandidates } from "./hooks/useBeatCandidates";
 
 interface ConfirmInfo {
 	title: string;
 	message: string;
 	confirmLabel: string;
 	onConfirm: () => void;
-}
-
-interface BatchQueueItem {
-	id: string;
-	scriptPath: string;
-	voPath: string;
-	musicPath?: string;
-	srtPath?: string;
-	status: "pending" | "running" | "completed" | "failed";
-	outputPath?: string;
-	progress?: PipelineProgress | null;
-	errorMessage?: string;
-}
-
-interface BeatStatus {
-	status: string;
-	downloadPercent?: number;
-	error?: string;
-	errorDetails?: string;
-}
-
-interface AssetValidation {
-	valid: boolean;
-	reason?: string;
-	hasAsset?: boolean;
-}
-
-function translateError(raw: string): ErrorInfo {
-	const msg = raw.toLowerCase();
-	if (msg.includes("enotdir") || msg.includes("esbuild") || msg.includes("spawn")) return { title: "Renderer Error", message: raw.length > 300 ? raw.slice(0, 300) + "..." : raw };
-	if (msg.includes("401") || msg.includes("403") || msg.includes("incorrect api key") || msg.includes("openrouter_api_key")) return { title: "API Key Error", message: "Your OpenRouter API key is missing or invalid. Check Settings.", actionLabel: "Open Settings" };
-	if (msg.includes("connection") || msg.includes("econnrefused") || msg.includes("enotfound") || msg.includes("fetch failed")) return { title: "Connection Error", message: "Could not connect to the server. Check your internet connection and try again." };
-	if (msg.includes("command failed") && msg.includes("ffmpeg")) return { title: "Missing Tool", message: "ffmpeg was not found. Try restarting the app." };
-	return { title: "Error", message: raw.length > 200 ? raw.slice(0, 200) + "..." : raw };
-}
-
-function fmtElapsed(ms: number): string {
-	const totalSec = Math.floor(ms / 1000);
-	const h = Math.floor(totalSec / 3600);
-	const m = Math.floor((totalSec % 3600) / 60);
-	const s = totalSec % 60;
-	if (h > 0) return `${h}h ${m}m ${s}s`;
-	if (m > 0) return `${m}m ${s}s`;
-	if (totalSec > 0) return `${totalSec}.${Math.floor((ms % 1000) / 100)}s`;
-	return "0s";
 }
 
 export default function App() {
@@ -79,7 +33,6 @@ export default function App() {
 	const [voPath, setVoPath] = useState<string | null>(null);
 	const [musicPath, setMusicPath] = useState<string | null>(null);
 	const [scenePlan, setScenePlan] = useState<any>(null);
-	const [subscribeHintBeatIds, setSubscribeHintBeatIds] = useState<Set<string>>(new Set());
 	const [selectedBeatId, setSelectedBeatId] = useState<string | null>(null);
 	const [progress, setProgress] = useState<PipelineProgress | null>(null);
 	const [logs, setLogs] = useState<string[]>([]);
@@ -94,54 +47,103 @@ export default function App() {
 	const [showSessionDetails, setShowSessionDetails] = useState(false);
 	const [regenerating, setRegenerating] = useState(false);
 	const [pipelineStateInfo, setPipelineStateInfo] = useState<PipelineStateInfo | null>(null);
-	const [projects, setProjects] = useState<SavedProject[]>([]);
-	const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
-	const [batchQueue, setBatchQueue] = useState<BatchQueueItem[]>([]);
-	const [batchCurrentIndex, setBatchCurrentIndex] = useState(-1);
 	const [selectedResolution, setSelectedResolution] = useState(1080);
 	const [showResumePicker, setShowResumePicker] = useState(false);
 	const [resumeOptions, setResumeOptions] = useState<any[]>([]);
-	const [assets, setAssets] = useState<Record<string, string>>({});
-	const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
-	const [reDownloadingBeat, setReDownloadingBeat] = useState<string | null>(null);
-	const [downloadingBeats, setDownloadingBeats] = useState<string[]>([]);
-	const [beatStatuses, setBeatStatuses] = useState<Record<string, BeatStatus>>({});
-	const [assetValidation, setAssetValidation] = useState<Record<string, AssetValidation>>({});
-	const [checkingAssets, setCheckingAssets] = useState(false);
 	const [confirm, setConfirm] = useState<ConfirmInfo | null>(null);
-	const [beatCandidates, setBeatCandidates] = useState<Record<string, any[]>>({});
-	const [selectedCandidateIndex, setSelectedCandidateIndex] = useState<Record<string, number>>({});
 	const [beatFilter, setBeatFilter] = useState<string | null>(null);
-	const [previewingAll, setPreviewingAll] = useState(false);
-	const [downloadingCandidateBeat, setDownloadingCandidateBeat] = useState<string | null>(null);
-	const [beatTextSegments, setBeatTextSegments] = useState<Record<string, string>>({});
 
 	const logsEndRef = useRef<HTMLDivElement>(null);
-	const viewRef = useRef(view);
-	const scenePlanRef = useRef(scenePlan);
-	const openSettingsRef = useRef(() => setShowSettings(true));
-	const autoSaveProjectRef = useRef(async (_s: string, _e?: any) => {});
-	const pendingPlanProjectIdRef = useRef<string | null>(null);
-	const currentProjectIdRef = useRef<string | null>(null);
-	const activePipelineProjectIdRef = useRef<string | null>(null);
-	const renderStartTimeRef = useRef<number | null>(null);
-	const isRenderingRef = useRef(false);
 
 	useEffect(() => {
 		window.api.getSettings().then(setSettings);
-		window.api.listProjects().then(setProjects);
 	}, []);
 
+	const openSettings = useCallback(() => setShowSettings(true), []);
+
+	const handleSaveSettings = useCallback(async (newSettings: AppSettings) => {
+		await window.api.saveSettings(newSettings);
+		setSettings(newSettings);
+		setShowSettings(false);
+	}, []);
+
+	const handleFilesDropped = useCallback(async (files: Record<string, string>) => {
+		if (files.srt) { setSrtPath(files.srt); setScriptPath(null); }
+		if (files.script) {
+			setScriptPath(files.script);
+			try { setScriptLength((await (await fetch(`file://${files.script}`)).text()).length); } catch { setScriptLength(0); }
+		}
+		if (files.vo) setVoPath(files.vo);
+		if (files.music) setMusicPath(files.music);
+	}, []);
+
+	const pipeline = usePipeline({
+		settings, scriptPath, srtPath, voPath, musicPath, scenePlan, currentProjectId: null,
+		currentProjectIdRef: { current: null } as any, selectedResolution, batchCurrentIndex: -1,
+		beatCandidates: {}, assets: {},
+		autoSaveProject: async () => {}, refreshProjects: async () => {}, openSettings,
+		setScenePlan, setView, setError, setProgress, setLogs, setOutputPath,
+		setRenderingError, setRenderStartTime, setRenderElapsed, setPreviousElapsed,
+		setSessionTimes, setShowSessionDetails, setRegenerating, setPipelineStateInfo,
+		setAssets: () => {}, setThumbnails: () => {}, setBeatStatuses: () => {},
+		setAssetValidation: () => {}, setDownloadingBeats: () => {},
+		setBeatCandidates: () => {}, setSelectedCandidateIndex: () => {}, setBatchQueue: () => {},
+	});
+
+	const assetsHook = useAssets({
+		currentProjectId: null, currentProjectIdRef: pipeline.currentProjectIdRef,
+		scenePlan, scriptPath, voPath, srtPath,
+		autoSaveProjectRef: pipeline.autoSaveProjectRef,
+		setScenePlan, setError,
+		setBeatCandidates: () => {}, selectedCandidateIndex: {}, beatCandidates: {},
+	});
+
+	const candidatesHook = useBeatCandidates({
+		currentProjectId: null, currentProjectIdRef: pipeline.currentProjectIdRef,
+		scenePlan, settings, assets: assetsHook.assets,
+		setBeatStatuses: assetsHook.setBeatStatuses,
+		setAssets: assetsHook.setAssets, setThumbnails: assetsHook.setThumbnails, setError,
+		selectedCandidateIndex: {}, beatCandidates: {},
+	});
+
+	const projectsHook = useProjects({
+		activePipelineProjectIdRef: pipeline.activePipelineProjectIdRef,
+		pendingPlanProjectIdRef: pipeline.pendingPlanProjectIdRef,
+		scriptPath, srtPath, voPath, musicPath, scenePlan,
+		assets: assetsHook.assets, beatCandidates: candidatesHook.beatCandidates,
+		selectedCandidateIndex: candidatesHook.selectedCandidateIndex,
+		setScriptPath, setSrtPath, setVoPath, setMusicPath, setScenePlan,
+		setAssets: assetsHook.setAssets, setThumbnails: assetsHook.setThumbnails,
+		setBeatStatuses: assetsHook.setBeatStatuses,
+		setAssetValidation: assetsHook.setAssetValidation,
+		setDownloadingBeats: assetsHook.setDownloadingBeats,
+		setBeatCandidates: candidatesHook.setBeatCandidates,
+		setSelectedCandidateIndex: candidatesHook.setSelectedCandidateIndex,
+		setBeatTextSegments: assetsHook.setBeatTextSegments,
+		setScriptLength, setSelectedBeatId,
+		setSubscribeHintBeatIds: assetsHook.setSubscribeHintBeatIds,
+		setReDownloadingBeat: assetsHook.setReDownloadingBeat,
+		setCheckingAssets: assetsHook.setCheckingAssets,
+		setPreviewingAll: candidatesHook.setPreviewingAll,
+		setDownloadingCandidateBeat: candidatesHook.setDownloadingCandidateBeat,
+		setView, setError, setProgress, setLogs, setRenderingError,
+		setRegenerating, setOutputPath, setPipelineStateInfo, setConfirm,
+	});
+
+	const batchHook = useBatchQueue({
+		activePipelineProjectIdRef: pipeline.activePipelineProjectIdRef,
+		setView, setLogs, setError, setRenderingError,
+	});
+
+	const currentProjectId = projectsHook.currentProjectId;
+
 	useEffect(() => {
+		if (view !== "editor" || !scenePlan?.beats?.length) return;
 		const handler = (e: KeyboardEvent) => {
-			if (view !== "editor" || !scenePlan?.beats?.length) return;
 			const tag = (e.target as HTMLElement)?.tagName;
 			if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
 			const beats = scenePlan.beats;
-			if (e.key === "Escape") {
-				setSelectedBeatId(null);
-				return;
-			}
+			if (e.key === "Escape") { setSelectedBeatId(null); return; }
 			if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
 			e.preventDefault();
 			const idx = beats.findIndex((b: any) => b.id === selectedBeatId);
@@ -157,684 +159,42 @@ export default function App() {
 		return () => window.removeEventListener("keydown", handler);
 	}, [view, scenePlan, selectedBeatId]);
 
-	useEffect(() => {
-		logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
-	}, [logs.length]);
-
-	useEffect(() => {
-		const entries = Object.entries(assets);
-		if (entries.length === 0) return;
-		let cancelled = false;
-		const loadThumbs = async () => {
-			const newThumbs: Record<string, string> = {};
-			for (const [beatId, assetPath] of entries) {
-				if (cancelled) break;
-				if (thumbnails[beatId]) { newThumbs[beatId] = thumbnails[beatId]; continue; }
-				try {
-					const thumb = await window.api.getBeatThumbnail(beatId, assetPath, currentProjectId ?? undefined);
-					if (thumb) newThumbs[beatId] = thumb;
-				} catch {}
-			}
-			if (!cancelled && Object.keys(newThumbs).length > 0) setThumbnails((prev) => ({ ...prev, ...newThumbs }));
-		};
-		loadThumbs();
-		return () => { cancelled = true; };
-	}, [assets, currentProjectId]);
-
-	useEffect(() => {
-		if (!scenePlan || Object.keys(beatTextSegments).length === 0) { setSubscribeHintBeatIds(new Set()); return; }
-		const subscribeKeywords = /subscri(be|bing|ption)|smash.*sub|hit.*sub|like.*sub|follow.*sub|click.*sub|button.*sub|channel.*sub|don't.*forget.*sub/i;
-		const hints = new Set<string>();
-		for (const beat of scenePlan.beats) {
-			const text = beatTextSegments[beat.id];
-			if (text && subscribeKeywords.test(text)) hints.add(beat.id);
-		}
-		setSubscribeHintBeatIds(hints);
-	}, [scenePlan, beatTextSegments]);
-
-	useEffect(() => {
-		if (!scenePlan || (!scriptPath && !srtPath)) { setBeatTextSegments({}); return; }
-		let cancelled = false;
-		const compute = async () => {
-			try {
-				const beats = scenePlan.beats.map((b: any) => ({ id: b.id, startTime: b.startTime, duration: b.duration }));
-				const segments = await window.api.getBeatTextSegments(beats, scriptPath ?? undefined, srtPath ?? undefined);
-				if (!cancelled) setBeatTextSegments(segments);
-			} catch {}
-		};
-		compute();
-		return () => { cancelled = true; };
-	}, [scenePlan, scriptPath, srtPath]);
-
-	const refreshProjects = useCallback(async () => { setProjects(await window.api.listProjects()); }, []);
-
-	const autoSaveProject = useCallback(async (status: string, extra?: any) => {
-		if (!scriptPath && !srtPath || !voPath) return;
-		const name = scenePlan?.title || srtPath?.split("/").pop()?.replace(/\.[^.]+$/, "") || scriptPath?.split("/").pop()?.replace(/\.[^.]+$/, "") || "Untitled Project";
-		const data: any = {
-			...(currentProjectId ? { id: currentProjectId } : {}),
-			name,
-			scriptPath: scriptPath ?? undefined,
-			voPath,
-			musicPath: musicPath ?? undefined,
-			srtPath: srtPath ?? undefined,
-			scenePlan: scenePlan ?? undefined,
-			beatCandidates: Object.keys(beatCandidates).length > 0 ? beatCandidates : undefined,
-			selectedCandidateIndex: Object.keys(selectedCandidateIndex).length > 0 ? selectedCandidateIndex : undefined,
-			assets: Object.keys(assets).length > 0 ? assets : undefined,
-			status,
-			...extra
-		};
-		const saved = await window.api.saveProject(data);
-		if (!currentProjectId) setCurrentProjectId(saved.id);
-		refreshProjects();
-	}, [scriptPath, srtPath, voPath, musicPath, scenePlan, currentProjectId, beatCandidates, selectedCandidateIndex, assets, refreshProjects]);
-
-	useEffect(() => {
-		const unsubProgress = window.api.onProgress((p: PipelineProgress) => {
-			const activePid = activePipelineProjectIdRef.current;
-			if (activePid !== currentProjectIdRef.current) return;
-			setProgress(p);
-			if (batchCurrentIndex >= 0) {
-				setBatchQueue((q) => q.map((it, idx) => idx === batchCurrentIndex ? { ...it, progress: p } : it));
-			}
-		});
-		const unsubComplete = async (path: string) => {
-			const activePid = activePipelineProjectIdRef.current;
-			if (activePid !== null && activePid !== currentProjectIdRef.current) return;
-			isRenderingRef.current = false;
-			activePipelineProjectIdRef.current = null;
-			setPreviousElapsed("");
-			setSessionTimes([]);
-			setShowSessionDetails(false);
-			if (!path) {
-				const pid = currentProjectIdRef.current;
-				if (pid && scriptPath && voPath) {
-					try {
-						const stateInfo = await window.api.getPipelineState(pid, scriptPath, voPath, srtPath ?? undefined);
-						if (stateInfo?.renderSegments?.completed > 0) {
-							setPipelineStateInfo(stateInfo);
-						}
-					} catch {}
-				}
-				setRenderingError(null);
-				setProgress(null);
-				setRenderElapsed(fmtElapsed(Date.now() - (renderStartTimeRef.current || Date.now())));
-				setView(scenePlanRef.current ? "editor" : "input");
-				return;
-			}
-			setOutputPath(path);
-			setView("complete");
-			setRenderingError(null);
-			setProgress(null);
-			setRenderElapsed(fmtElapsed(Date.now() - (renderStartTimeRef.current || Date.now())));
-			autoSaveProjectRef.current("complete", { outputPath: path });
-		};
-		const unsubError = async (err: string) => {
-			if (err.includes("cancelled by user")) {
-				isRenderingRef.current = false;
-				setPreviousElapsed("");
-				setSessionTimes([]);
-				setShowSessionDetails(false);
-				const pid = currentProjectIdRef.current;
-				if (pid && scriptPath && voPath) {
-					try {
-						const stateInfo = await window.api.getPipelineState(pid, scriptPath, voPath, srtPath ?? undefined);
-						if (stateInfo?.renderSegments?.completed > 0) {
-							setPipelineStateInfo(stateInfo);
-						}
-					} catch {}
-				}
-				setRenderingError(null);
-				setProgress(null);
-				setRenderElapsed(fmtElapsed(Date.now() - (renderStartTimeRef.current || Date.now())));
-				setView(scenePlanRef.current ? "editor" : "input");
-				return;
-			}
-			const activePid = activePipelineProjectIdRef.current;
-			if (activePid !== null && activePid !== currentProjectIdRef.current) return;
-			isRenderingRef.current = false;
-			activePipelineProjectIdRef.current = null;
-			setPreviousElapsed("");
-			setSessionTimes([]);
-			setShowSessionDetails(false);
-			const translated = translateError(err);
-			if (translated.actionLabel === "Open Settings") translated.onAction = () => { setError(null); openSettingsRef.current(); };
-			setRenderingError(null);
-			setProgress(null);
-			autoSaveProjectRef.current("error");
-			if (viewRef.current === "rendering") setRenderingError(translated.message);
-			else setError(translated);
-		};
-		const unsubScenePlan = (plan: any) => {
-			const pendingPid = pendingPlanProjectIdRef.current;
-			if (pendingPid && pendingPid !== currentProjectIdRef.current) { pendingPlanProjectIdRef.current = null; return; }
-			setScenePlan(plan);
-			setView("editor");
-			if (pendingPid) {
-				window.api.saveProject({ id: pendingPid, scenePlan: plan, status: "editing" }).then(() => { refreshProjects(); }).catch(console.error);
-				window.api.saveScenePlan(pendingPid, plan).catch(console.error);
-				pendingPlanProjectIdRef.current = null;
-			} else {
-				autoSaveProjectRef.current("editing", { scenePlan: plan });
-			}
-		};
-		const unsubLog = (msg: string) => {
-			const activePid = activePipelineProjectIdRef.current;
-			if (activePid && activePid !== currentProjectIdRef.current) return;
-			setLogs((prev) => [...prev, msg]);
-		};
-		const unsubAssets = (newAssets: Record<string, string>) => {
-			const activePid = activePipelineProjectIdRef.current;
-			if (activePid && activePid !== currentProjectIdRef.current) return;
-			setAssets((prev) => ({ ...prev, ...newAssets }));
-		};
-		const unsubBeatStatus = (beatId: string, status: string, downloadPercent: number, error: string, errorDetails: string) => {
-			const activePid = activePipelineProjectIdRef.current;
-			if (activePid && activePid !== currentProjectIdRef.current) return;
-			setBeatStatuses((prev) => ({ ...prev, [beatId]: { status, downloadPercent, error, errorDetails } }));
-		};
-		window.api.onComplete(unsubComplete);
-		window.api.onError(unsubError);
-		window.api.onScenePlanReady(unsubScenePlan);
-		window.api.onLog(unsubLog);
-		window.api.onAssetDownloaded(unsubAssets);
-		window.api.onBeatStatus(unsubBeatStatus);
-		return () => { unsubProgress(); };
-	}, []);
+	useEffect(() => { logsEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [logs.length]);
 
 	useEffect(() => {
 		if (view !== "rendering" || !renderStartTime) return;
-		const interval = setInterval(() => {
-			setRenderElapsed(fmtElapsed(Date.now() - renderStartTime));
-		}, 500);
+		const interval = setInterval(() => { setRenderElapsed(fmtElapsed(Date.now() - renderStartTime)); }, 500);
 		setRenderElapsed(fmtElapsed(Date.now() - renderStartTime));
 		return () => clearInterval(interval);
 	}, [view, renderStartTime]);
 
 	useEffect(() => {
 		if (!currentProjectId || !scenePlan) return;
-		if (Object.keys(assets).length === 0 && Object.keys(beatCandidates).length === 0) return;
-		const timer = setTimeout(() => {
-			autoSaveProjectRef.current("editing");
-		}, 1000);
+		if (Object.keys(assetsHook.assets).length === 0 && Object.keys(candidatesHook.beatCandidates).length === 0) return;
+		const timer = setTimeout(() => { pipeline.autoSaveProjectRef.current("editing"); }, 1000);
 		return () => clearTimeout(timer);
-	}, [assets, beatCandidates, currentProjectId, scenePlan]);
+	}, [assetsHook.assets, candidatesHook.beatCandidates, currentProjectId, scenePlan]);
 
-	const openSettings = useCallback(() => setShowSettings(true), []);
+	pipeline.viewRef.current = view;
 
-	const validate = useCallback((needsApi = true) => {
-		if ((!settings?.openrouterApiKeys || settings.openrouterApiKeys.length === 0) && needsApi) {
+	const handlePreview = useCallback(() => {
+		if (!scriptPath && !srtPath) { setError({ title: "Missing Input", message: "Please select an SRT subtitles file or a script file." }); return; }
+		if (!voPath) { setError({ title: "Missing Voiceover", message: "Please select a voiceover audio file (.mp3, .wav, etc.)." }); return; }
+		if (!settings?.openrouterApiKeys || settings.openrouterApiKeys.length === 0) {
 			setError({ title: "Missing API Key", message: "Please add your OpenRouter API key in Settings to use AI features.", actionLabel: "Open Settings", onAction: () => { setError(null); openSettings(); } });
-			return false;
-		}
-		if (!scriptPath && !srtPath) { setError({ title: "Missing Input", message: "Please select an SRT subtitles file or a script file." }); return false; }
-		if (!voPath) { setError({ title: "Missing Voiceover", message: "Please select a voiceover audio file (.mp3, .wav, etc.)." }); return false; }
-		return true;
-	}, [settings, scriptPath, srtPath, voPath, openSettings]);
-
-	const handleFilesDropped = useCallback(async (files: Record<string, string>) => {
-		if (files.srt) { setSrtPath(files.srt); setScriptPath(null); }
-		if (files.script) {
-			setScriptPath(files.script);
-			try { setScriptLength((await (await fetch(`file://${files.script}`)).text()).length); } catch { setScriptLength(0); }
-		}
-		if (files.vo) setVoPath(files.vo);
-		if (files.music) setMusicPath(files.music);
-	}, []);
-
-	const handlePreview = useCallback(async () => {
-		if (!validate(true)) return;
-		const pid = currentProjectId;
-		setView("planning");
-		setError(null);
-		setLogs([]);
-		pendingPlanProjectIdRef.current = pid;
-		await autoSaveProject("planning");
-		try {
-			const plan = await window.api.previewScenePlan(scriptPath ?? undefined, voPath!, pid ?? undefined, srtPath ?? undefined);
-			if (currentProjectIdRef.current !== pid) {
-				if (pid) { window.api.saveProject({ id: pid, scenePlan: plan, status: "editing" }).catch(() => {}); window.api.saveScenePlan(pid, plan).catch(() => {}); }
-				return;
-			}
-			setScenePlan(plan);
-			setView("editor");
-		} catch (err: any) {
-			if (currentProjectIdRef.current !== pid) return;
-			const msg = err.message || "";
-			if (msg.includes("401") || msg.includes("403") || msg.includes("Incorrect API key")) {
-				setError({ title: "API Key Invalid", message: "Your OpenRouter API key was rejected. Check Settings.", actionLabel: "Open Settings", onAction: () => { setError(null); openSettings(); } });
-			} else {
-				setError({ title: "Preview Failed", message: msg || "Failed to generate scene plan. Click Retry to try again." });
-			}
-			setView("planning");
-		}
-	}, [scriptPath, voPath, validate, openSettings, autoSaveProject, currentProjectId]);
-
-	const handleRegenerate = useCallback(async () => {
-		if (!validate(true)) return;
-		const pid = currentProjectId;
-		setRegenerating(true);
-		setError(null);
-		setLogs([]);
-		setPipelineStateInfo(null);
-		setOutputPath(null);
-		setBeatStatuses({});
-		setDownloadingBeats([]);
-		setAssetValidation({});
-		pendingPlanProjectIdRef.current = pid;
-		setBeatCandidates({});
-		setSelectedCandidateIndex({});
-		try {
-			const plan = await window.api.previewScenePlan(scriptPath ?? undefined, voPath!, pid ?? undefined, srtPath ?? undefined);
-			if (currentProjectIdRef.current !== pid) {
-				if (pid) { window.api.saveProject({ id: pid, scenePlan: plan, status: "editing" }).catch(() => {}); window.api.saveScenePlan(pid, plan).catch(() => {}); try { await window.api.cleanAssets(pid); } catch {} }
-				return;
-			}
-			setScenePlan(plan);
-			autoSaveProject("editing", { scenePlan: plan });
-			if (pid) try { await window.api.cleanAssets(pid); } catch {}
-			setAssets({});
-			setThumbnails({});
-		} catch (err: any) {
-			if (currentProjectIdRef.current !== pid) return;
-			setError({ title: "Regeneration Failed", message: err.message || "Failed to regenerate scene plan." });
-		} finally {
-			if (currentProjectIdRef.current === pid) setRegenerating(false);
-		}
-	}, [scriptPath, voPath, validate, autoSaveProject, currentProjectId]);
-
-	const addToQueue = useCallback((project: SavedProject) => {
-		setBatchQueue((q) => [...q, { id: project.id, scriptPath: project.scriptPath ?? "", voPath: project.voPath, musicPath: project.musicPath, status: "pending" }]);
-	}, []);
-
-	const handleStartBatchQueue = useCallback(async (startIndex = 0) => {
-		if (batchQueue.length === 0) return;
-		setBatchCurrentIndex(startIndex);
-		setView("rendering");
-		for (let i = startIndex; i < batchQueue.length; i++) {
-			if (batchQueue[i].status === "completed") continue;
-			const item = batchQueue[i];
-			activePipelineProjectIdRef.current = item.id;
-			setBatchQueue((q) => q.map((it, idx) => idx === i ? { ...it, status: "running", progress: null, errorMessage: undefined } : it));
-			setBatchCurrentIndex(i);
-			setLogs([]);
-			setError(null);
-			setRenderingError(null);
-			try {
-				const output = await window.api.runPipeline({ scriptPath: item.scriptPath, voPath: item.voPath, musicPath: item.musicPath, srtPath: item.srtPath, projectId: item.id });
-				setBatchQueue((q) => q.map((it, idx) => idx === i ? { ...it, status: "completed", outputPath: output, progress: null } : it));
-			} catch (err: any) {
-				setBatchQueue((q) => q.map((it, idx) => idx === i ? { ...it, status: "failed", errorMessage: err?.message || String(err), progress: null } : it));
-			}
-		}
-		setBatchCurrentIndex(-1);
-	}, [batchQueue]);
-
-	const handleReDownloadBeat = useCallback(async (beatId: string, newQuery: string) => {
-		if (!currentProjectId || downloadingBeats.includes(beatId)) return;
-		const pid = currentProjectId;
-		setDownloadingBeats((prev) => [...prev, beatId]);
-		try {
-			const result = await window.api.reDownloadBeat(beatId, newQuery, scenePlan?.beats.find((b: any) => b.id === beatId)?.type ?? "clip", pid);
-			if (currentProjectIdRef.current !== pid) return;
-			if (result?.path) {
-				setAssets((prev) => ({ ...prev, [beatId]: result.path }));
-				if (result.thumbnail) setThumbnails((prev) => ({ ...prev, [beatId]: result.thumbnail }));
-				else setThumbnails((prev) => { const next = { ...prev }; delete next[beatId]; return next; });
-				setScenePlan((prev) => {
-					if (!prev) return prev;
-					const updated = { ...prev, beats: prev.beats.map((b: any) => b.id === beatId ? { ...b, searchQuery: newQuery } : b) };
-					autoSaveProjectRef.current("editing", { scenePlan: updated });
-					if (pid) window.api.saveScenePlan(pid, updated).catch(console.error);
-					return updated;
-				});
-			}
-		} catch (err: any) {
-			if (currentProjectIdRef.current !== pid) return;
-			setError({ title: "Re-download Failed", message: err.message });
-		}
-		if (currentProjectIdRef.current === pid) setDownloadingBeats((prev) => prev.filter((id) => id !== beatId));
-	}, [currentProjectId, downloadingBeats, scenePlan]);
-
-	const handleSaveSearch = useCallback(async (beatId: string, newQuery: string) => {
-		setScenePlan((prev) => {
-			if (!prev) return prev;
-			const updated = { ...prev, beats: prev.beats.map((b: any) => b.id === beatId ? { ...b, searchQuery: newQuery } : b) };
-			autoSaveProjectRef.current("editing", { scenePlan: updated });
-			if (currentProjectId) window.api.saveScenePlan(currentProjectId, updated).catch(console.error);
-			return updated;
-		});
-	}, [currentProjectId]);
-
-	const handleToggleOverlay = useCallback((beatId: string) => {
-		setScenePlan((prev) => {
-			if (!prev) return prev;
-			const updated = { ...prev, beats: prev.beats.map((b: any) => {
-				if (b.id !== beatId) return b;
-				if (b.overlay) { const { overlay, ...rest } = b; return rest; }
-				return { ...b, overlay: { type: "subscribe_cta", showAt: 0, hideAt: 1 } };
-			})};
-			autoSaveProjectRef.current("editing", { scenePlan: updated });
-			if (currentProjectId) window.api.saveScenePlan(currentProjectId, updated).catch(console.error);
-			return updated;
-		});
-	}, [currentProjectId]);
-
-	const handleCheckAllAssets = useCallback(async () => {
-		if (!scenePlan || !currentProjectId) return;
-		const pid = currentProjectId;
-		setCheckingAssets(true);
-		setAssetValidation({});
-		try {
-			const results = await window.api.validateAllAssets(scenePlan.beats, assets, pid);
-			if (currentProjectIdRef.current !== pid) return;
-			setAssetValidation(results);
-		} catch (err: any) {
-			if (currentProjectIdRef.current !== pid) return;
-			setError({ title: "Check Failed", message: err.message });
-		}
-		if (currentProjectIdRef.current === pid) setCheckingAssets(false);
-	}, [scenePlan, assets, currentProjectId]);
-
-	const handleSaveSettings = useCallback(async (newSettings: AppSettings) => {
-		await window.api.saveSettings(newSettings);
-		setSettings(newSettings);
-		setShowSettings(false);
-	}, []);
-
-	const handleCleanAssets = useCallback(async () => {
-		if (!currentProjectId) return;
-		const pid = currentProjectId;
-		try {
-			await window.api.cleanAssets(pid);
-			const stateInfo = await window.api.getPipelineState(pid, scriptPath!, voPath!, srtPath ?? undefined);
-			if (currentProjectIdRef.current !== pid) return;
-		setAssets(stateInfo?.assets ?? {});
-			setThumbnails({});
-			setAssetValidation({});
-		} catch (err: any) {
-			if (currentProjectIdRef.current !== pid) return;
-			setError({ title: "Clean Failed", message: err.message });
-		}
-	}, [currentProjectId, scriptPath, voPath, srtPath]);
-
-	const handleSearchBeat = useCallback(async (beatId: string, query: string) => {
-		if (!currentProjectId || !scenePlan || !query.trim()) return;
-		const beat = scenePlan.beats.find((b: any) => b.id === beatId);
-		if (!beat) return;
-		const pid = currentProjectId;
-		setBeatStatuses((prev) => ({ ...prev, [beatId]: { status: "searching" } }));
-		try {
-			const results = await window.api.searchBeatCandidates(beatId, query, beat.type, pid);
-			if (currentProjectIdRef.current !== pid) return;
-			setBeatCandidates((prev) => ({ ...prev, [beatId]: results }));
-			if (results.length > 0 && selectedCandidateIndex[beatId] === undefined) setSelectedCandidateIndex((prev) => ({ ...prev, [beatId]: 0 }));
-			setBeatStatuses((prev) => { const next = { ...prev }; delete next[beatId]; return next; });
-		} catch (err: any) {
-			if (currentProjectIdRef.current !== pid) return;
-			setBeatStatuses((prev) => ({ ...prev, [beatId]: { status: "failed", error: "search_failed", errorDetails: err.message } }));
-		}
-	}, [currentProjectId, scenePlan, selectedCandidateIndex]);
-
-	const handlePreviewAll = useCallback(async () => {
-		if (!currentProjectId || !scenePlan) return;
-		const pid = currentProjectId;
-		setPreviewingAll(true);
-		setBeatStatuses({});
-		setBeatCandidates({});
-		setSelectedCandidateIndex({});
-		const assetableBeats = scenePlan.beats.filter((b: any) => (b.type === "clip" || b.type === "image") && b.searchQuery);
-		const concurrency = settings?.previewConcurrency ?? 10;
-		for (let i = 0; i < assetableBeats.length; i += concurrency) {
-			if (currentProjectIdRef.current !== pid) return;
-			const batch = assetableBeats.slice(i, i + concurrency);
-			await Promise.allSettled(batch.map(async (beat: any) => {
-				setBeatStatuses((prev) => ({ ...prev, [beat.id]: { status: "searching" } }));
-				try {
-					const results = await window.api.searchBeatCandidates(beat.id, beat.searchQuery, beat.type, pid);
-					if (currentProjectIdRef.current !== pid) return;
-					setBeatCandidates((prev) => ({ ...prev, [beat.id]: results }));
-					if (results.length > 0) setSelectedCandidateIndex((prev) => ({ ...prev, [beat.id]: 0 }));
-					setBeatStatuses((prev) => { const next = { ...prev }; delete next[beat.id]; return next; });
-				} catch {
-					if (currentProjectIdRef.current !== pid) return;
-					setBeatStatuses((prev) => ({ ...prev, [beat.id]: { status: "failed" } }));
-				}
-			}));
-		}
-		if (currentProjectIdRef.current === pid) setPreviewingAll(false);
-	}, [currentProjectId, scenePlan]);
-
-	const handleSelectCandidate = useCallback((beatId: string, index: number) => {
-		setSelectedCandidateIndex((prev) => ({ ...prev, [beatId]: index }));
-	}, []);
-
-	const handleDownloadCandidate = useCallback(async (beatId: string, index: number) => {
-		if (!currentProjectId) return;
-		const candidates = beatCandidates[beatId];
-		if (!candidates || !candidates[index]) return;
-		const pid = currentProjectId;
-		setDownloadingCandidateBeat(beatId);
-		try {
-			const result = await window.api.downloadSelectedCandidate(beatId, candidates[index], pid);
-			if (currentProjectIdRef.current !== pid) return;
-			if (result.path) {
-				setAssets((prev) => ({ ...prev, [beatId]: result.path }));
-				if (result.thumbnail) setThumbnails((prev) => ({ ...prev, [beatId]: result.thumbnail }));
-			}
-		} catch (err: any) {
-			if (currentProjectIdRef.current !== pid) return;
-			setError({ title: "Download Failed", message: err.message });
-		}
-		if (currentProjectIdRef.current === pid) setDownloadingCandidateBeat(null);
-	}, [currentProjectId, beatCandidates]);
-
-	const handleDownloadAllSelected = useCallback(async () => {
-		if (!currentProjectId || !scenePlan) return;
-		const pid = currentProjectId;
-		const toDownload = scenePlan.beats.filter((b: any) => b.type === "clip" || b.type === "image").filter((b: any) => beatCandidates[b.id]?.length && !assets[b.id]);
-		const concurrency = settings?.concurrency ?? 4;
-		const maxRetries = 3;
-
-		const downloadBatch = async (batch: any[], getIdx: (beatId: string) => number) => {
-			const failed: any[] = [];
-			await Promise.allSettled(batch.map(async (beat: any) => {
-				const idx = getIdx(beat.id);
-				const candidates = beatCandidates[beat.id];
-				if (!candidates?.[idx]) { failed.push(beat); return; }
-				try {
-					const result = await window.api.downloadSelectedCandidate(beat.id, candidates[idx], pid);
-					if (currentProjectIdRef.current !== pid) return;
-					if (result.path) {
-						setAssets((prev) => ({ ...prev, [beat.id]: result.path }));
-						if (result.thumbnail) setThumbnails((prev) => ({ ...prev, [beat.id]: result.thumbnail }));
-					} else {
-						failed.push(beat);
-					}
-				} catch {
-					failed.push(beat);
-				}
-			}));
-			return failed;
-		};
-
-		for (let i = 0; i < toDownload.length; i += concurrency) {
-			if (currentProjectIdRef.current !== pid) return;
-			const batch = toDownload.slice(i, i + concurrency);
-			let failed = await downloadBatch(batch, (beatId) => selectedCandidateIndex[beatId] ?? 0);
-
-			for (let retry = 1; retry <= maxRetries && failed.length > 0; retry++) {
-				if (currentProjectIdRef.current !== pid) return;
-				const retryFailed = await downloadBatch(failed, (beatId) => {
-					const base = selectedCandidateIndex[beatId] ?? 0;
-					const next = base + retry;
-					const candidates = beatCandidates[beatId];
-					return candidates?.[next] ? next : base;
-				});
-				failed = retryFailed;
-			}
-		}
-	}, [currentProjectId, scenePlan, beatCandidates, selectedCandidateIndex, assets]);
-
-	const handleRenderVideo = useCallback(async (mode = "render") => {
-		if (isRenderingRef.current) return;
-		if (!scenePlan || !currentProjectId || (!scriptPath && !srtPath) || !voPath) return;
-		const pid = currentProjectId;
-		isRenderingRef.current = true;
-		const stateInfo = await window.api.getPipelineState(pid, scriptPath ?? "", voPath, srtPath ?? undefined);
-		if (currentProjectIdRef.current !== pid) { isRenderingRef.current = false; return; }
-		const currentAssets = stateInfo?.assets ?? {};
-		const missing = scenePlan.beats.filter((b: any) => b.type === "clip" || b.type === "image").filter((b: any) => !currentAssets[b.id]);
-		if (missing.length > 0) {
-			setAssets(currentAssets);
-			const details = missing.slice(0, 10).map((b: any) => b.searchQuery).join(", ") + (missing.length > 10 ? ` and ${missing.length - 10} more` : "");
-			setError({ title: `${missing.length} Asset(s) Missing`, message: `Cannot render. Download all assets first. Missing: ${details}` });
 			return;
 		}
-		setAssets(currentAssets);
-		setPipelineStateInfo(stateInfo);
-		setShowSessionDetails(false);
-		if (mode === "continue") {
-			const prevMs = (stateInfo as any)?.renderSegments?.elapsedMs ?? 0;
-			const times = (stateInfo as any)?.renderSegments?.sessionTimes ?? [];
-			setSessionTimes(times);
-			setPreviousElapsed(prevMs > 0 ? fmtElapsed(prevMs) : "");
-		} else {
-			setSessionTimes([]);
-			setPreviousElapsed("");
-		}
-		activePipelineProjectIdRef.current = pid;
-		setRenderStartTime(Date.now());
-		renderStartTimeRef.current = Date.now();
-		setView("rendering");
-		try {
-			await window.api.renderVideo(pid, scriptPath ?? "", voPath, musicPath || undefined, mode, srtPath ?? undefined, selectedResolution);
-		} catch (err: any) {
-			isRenderingRef.current = false;
-			if (currentProjectIdRef.current !== pid) return;
-			console.error("Render failed:", err.message);
-			setRenderElapsed(fmtElapsed(Date.now() - (renderStartTimeRef.current || Date.now())));
-			setError({ title: "Render Failed", message: err.message });
-		}
-	}, [scenePlan, currentProjectId, scriptPath, srtPath, voPath, musicPath, selectedResolution]);
-
-	const handleStop = useCallback(async () => {
-		try { await window.api.cancelPipeline(); } catch {}
-		activePipelineProjectIdRef.current = null;
-		setPreviousElapsed("");
-		setSessionTimes([]);
-		setShowSessionDetails(false);
-		setRenderingError(null);
-		setProgress(null);
-		setRenderElapsed(fmtElapsed(Date.now() - (renderStartTimeRef.current || Date.now())));
-		setView(scenePlanRef.current ? "editor" : "input");
-	}, []);
-
-	const handleBackToEditor = useCallback(() => {
-		setRenderingError(null);
-		setProgress(null);
-		setPreviousElapsed("");
-		setSessionTimes([]);
-		setShowSessionDetails(false);
-		setView(scenePlanRef.current ? "editor" : "input");
-	}, []);
-
-	const handleOpenProject = useCallback(async (project: SavedProject) => {
-		activePipelineProjectIdRef.current = null;
-		setScriptPath(project.scriptPath ?? null);
-		setVoPath(project.voPath);
-		setMusicPath(project.musicPath ?? null);
-		setSrtPath(project.srtPath ?? null);
-		setScenePlan(project.scenePlan ?? null);
-		setCurrentProjectId(project.id);
-		setError(null);
-		setProgress(null);
-		setLogs([]);
-		setRenderingError(null);
-		setRegenerating(false);
-		setOutputPath(project.outputPath ?? null);
-		setThumbnails({});
-		setBeatStatuses({});
-		setAssetValidation({});
-		setDownloadingBeats([]);
-		setBeatCandidates(project.beatCandidates ?? {});
-		setSelectedCandidateIndex(project.selectedCandidateIndex ?? {});
-		setBeatTextSegments({});
-		setScriptLength(0);
-		setSelectedBeatId(null);
-		setSubscribeHintBeatIds(new Set());
-		setReDownloadingBeat(null);
-		setCheckingAssets(false);
-		setPreviewingAll(false);
-		setDownloadingCandidateBeat(null);
-		pendingPlanProjectIdRef.current = null;
-		let stateInfo = null;
-		if (project.id) try { stateInfo = await window.api.getPipelineState(project.id, project.scriptPath ?? "", project.voPath, project.srtPath); } catch {}
-		setPipelineStateInfo(stateInfo);
-		let loadedAssets = stateInfo?.assets ?? project.assets ?? {};
-		if (project.scenePlan && Object.keys(loadedAssets).length === 0 && project.id) {
-			try {
-				const recovered = await window.api.recoverAssets(project.scenePlan.beats, project.id);
-				if (Object.keys(recovered).length > 0) loadedAssets = recovered;
-			} catch {}
-		}
-		setAssets(loadedAssets);
-		if (project.status === "complete" && project.outputPath) setView("complete");
-		else if (project.scenePlan) setView("editor");
-		else setView("input");
-	}, []);
-
-	const handleNewProject = useCallback(() => {
-		activePipelineProjectIdRef.current = null;
-		setView("input");
-		setScenePlan(null);
-		setOutputPath(null);
-		setError(null);
-		setProgress(null);
-		setLogs([]);
-		setCurrentProjectId(null);
-		setPipelineStateInfo(null);
-		setScriptPath(null);
-		setScriptLength(0);
-		setSrtPath(null);
-		setVoPath(null);
-		setMusicPath(null);
-		setBeatCandidates({});
-		setSelectedCandidateIndex({});
-		setRenderingError(null);
-		setRegenerating(false);
-		setAssets({});
-		setThumbnails({});
-		setReDownloadingBeat(null);
-		setDownloadingBeats([]);
-		setBeatStatuses({});
-		setAssetValidation({});
-		setCheckingAssets(false);
-		setConfirm(null);
-		setPreviewingAll(false);
-		setDownloadingCandidateBeat(null);
-		setBeatTextSegments({});
-		setSelectedBeatId(null);
-		setSubscribeHintBeatIds(new Set());
-		pendingPlanProjectIdRef.current = null;
-	}, []);
-
-	const handleRenameProject = useCallback(async (id: string, name: string) => {
-		await window.api.renameProject(id, name);
-		refreshProjects();
-	}, [refreshProjects]);
-
-	const handleDeleteProject = useCallback(async (id: string) => {
-		await window.api.deleteProject(id);
-		if (currentProjectId === id) setCurrentProjectId(null);
-		refreshProjects();
-	}, [currentProjectId, refreshProjects]);
-
-	viewRef.current = view;
-	scenePlanRef.current = scenePlan;
-	autoSaveProjectRef.current = autoSaveProject;
-	currentProjectIdRef.current = currentProjectId;
+		const plannerLabel = PLANNER_MODELS.find(m => m.value === settings.scenePlannerModel)?.label ?? settings.scenePlannerModel;
+		const checkerLabel = CHECKER_MODELS.find(m => m.value === settings.qualityCheckerModel)?.label ?? settings.qualityCheckerModel;
+		const checkerCost = CHECKER_MODELS.find(m => m.value === settings.qualityCheckerModel)?.cost ?? "";
+		const plannerCost = PLANNER_MODELS.find(m => m.value === settings.scenePlannerModel)?.cost ?? "";
+		setConfirm({
+			title: "Preview Scene Plan",
+			message: `Scene Planner: ${plannerLabel} (${plannerCost})\nQuality Checker: ${checkerLabel} (${checkerCost})`,
+			confirmLabel: "Continue",
+			onConfirm: () => { setConfirm(null); pipeline.doPreview(); }
+		});
+	}, [scriptPath, srtPath, voPath, settings, openSettings, pipeline.doPreview]);
 
 	const selectedBeat = scenePlan?.beats.find((b: any) => b.id === selectedBeatId) ?? null;
 
@@ -842,14 +202,14 @@ export default function App() {
 
 	return (
 		<div className="flex h-screen bg-zinc-950">
-			<Sidebar view={view} onNew={handleNewProject} onProjects={() => setView("projects")} onQueue={() => setView("queue")} onSettings={openSettings} />
+			<Sidebar view={view} onNew={projectsHook.handleNewProject} onProjects={() => setView("projects")} onQueue={() => setView("queue")} onSettings={openSettings} />
 			<main className="flex-1 flex flex-col">
 				{view === "input" && (
 					<DropZone scriptPath={scriptPath} voPath={voPath} musicPath={musicPath} srtPath={srtPath} onFilesSelected={handleFilesDropped} onPreview={handlePreview} canPreview={(!!scriptPath || !!srtPath) && !!voPath} />
 				)}
 
 				{view === "projects" && (
-					<ProjectsView projects={projects} onOpen={handleOpenProject} onRename={handleRenameProject} onDelete={handleDeleteProject} onNew={handleNewProject} onAddToQueue={addToQueue} />
+					<ProjectsView projects={projectsHook.projects} onOpen={projectsHook.handleOpenProject} onRename={projectsHook.handleRenameProject} onDelete={projectsHook.handleDeleteProject} onNew={projectsHook.handleNewProject} onAddToQueue={batchHook.addToQueue} />
 				)}
 
 				{view === "queue" && (
@@ -858,10 +218,10 @@ export default function App() {
 							<div className="flex items-center gap-4 mb-6">
 								<h2 className="text-xl font-bold text-zinc-100">Batch Queue</h2>
 								<span className="text-xs font-semibold uppercase tracking-wide text-zinc-500 bg-zinc-800/80 px-3 py-1.5 rounded-full border border-zinc-700/50">
-									{batchQueue.length} item{batchQueue.length !== 1 ? "s" : ""}
+									{batchHook.batchQueue.length} item{batchHook.batchQueue.length !== 1 ? "s" : ""}
 								</span>
 							</div>
-							{batchQueue.length === 0 ? (
+							{batchHook.batchQueue.length === 0 ? (
 								<div className="text-center py-16">
 									<div className="w-16 h-16 mx-auto mb-4 rounded-xl bg-zinc-800/50 flex items-center justify-center"><span className="text-4xl opacity-40">📋</span></div>
 									<p className="text-zinc-400 mb-2">No projects in queue</p>
@@ -869,14 +229,14 @@ export default function App() {
 								</div>
 							) : (
 								<div className="space-y-3">
-									{batchQueue.map((item, idx) => (
-										<div key={item.id} className={`p-4 rounded-xl border transition-all ${idx === batchCurrentIndex ? "border-blue-500 bg-blue-500/10 shadow-lg shadow-blue-500/10" : item.status === "completed" ? "border-emerald-500/50 bg-emerald-500/5" : item.status === "failed" ? "border-red-500/50 bg-red-500/5" : "border-zinc-700/60 bg-zinc-800/40 hover:bg-zinc-800/60"}`}>
+									{batchHook.batchQueue.map((item, idx) => (
+										<div key={item.id} className={`p-4 rounded-xl border transition-all ${idx === batchHook.batchCurrentIndex ? "border-blue-500 bg-blue-500/10 shadow-lg shadow-blue-500/10" : item.status === "completed" ? "border-emerald-500/50 bg-emerald-500/5" : item.status === "failed" ? "border-red-500/50 bg-red-500/5" : "border-zinc-700/60 bg-zinc-800/40 hover:bg-zinc-800/60"}`}>
 											<div className="flex items-center gap-4">
 												<span className="text-zinc-500 text-sm font-medium w-6">{idx + 1}.</span>
 												<span className="text-zinc-200 text-sm flex-1 truncate font-medium">{item.scriptPath.split("/").pop()}</span>
 												<span className={`text-[10px] uppercase tracking-wider font-semibold px-2.5 py-1 rounded-md ${item.status === "pending" ? "bg-zinc-700/50 text-zinc-400 border border-zinc-600/30" : item.status === "running" ? "bg-blue-500/20 text-blue-400 border border-blue-500/30" : item.status === "completed" ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30" : "bg-red-500/20 text-red-400 border border-red-500/30"}`}>{item.status}</span>
-												{item.status === "pending" && <button onClick={() => setBatchQueue((q) => q.filter((_, i) => i !== idx))} className="w-7 h-7 rounded-lg flex items-center justify-center text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-all">✕</button>}
-												{item.status === "failed" && <button onClick={() => handleStartBatchQueue(idx)} className="px-2 py-1 rounded-md text-[10px] font-semibold bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30 transition-all">Retry</button>}
+												{item.status === "pending" && <button onClick={() => batchHook.removeFromQueue(idx)} className="w-7 h-7 rounded-lg flex items-center justify-center text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-all">✕</button>}
+												{item.status === "failed" && <button onClick={() => batchHook.handleStartBatchQueue(idx)} className="px-2 py-1 rounded-md text-[10px] font-semibold bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30 transition-all">Retry</button>}
 												{item.status === "completed" && item.outputPath && <button onClick={() => window.api.openInFinder(item.outputPath!)} className="w-7 h-7 rounded-lg flex items-center justify-center text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700/50 transition-all text-sm">📂</button>}
 											</div>
 											{item.status === "running" && item.progress && (
@@ -892,19 +252,19 @@ export default function App() {
 											)}
 										</div>
 									))}
-									{batchQueue.length > 0 && (() => {
-										const done = batchQueue.filter((q) => q.status === "completed").length;
-										const failed = batchQueue.filter((q) => q.status === "failed").length;
-										return <p className="text-xs text-zinc-500">{done}/{batchQueue.length} complete{failed > 0 ? `, ${failed} failed` : ""}</p>;
+									{batchHook.batchQueue.length > 0 && (() => {
+										const done = batchHook.batchQueue.filter((q) => q.status === "completed").length;
+										const failed = batchHook.batchQueue.filter((q) => q.status === "failed").length;
+										return <p className="text-xs text-zinc-500">{done}/{batchHook.batchQueue.length} complete{failed > 0 ? `, ${failed} failed` : ""}</p>;
 									})()}
 								</div>
 							)}
-							{batchQueue.length > 0 && batchCurrentIndex === -1 && (
-								<button onClick={handleStartBatchQueue} className="mt-6 w-full py-3 bg-gradient-to-r from-green-600 to-green-500 hover:from-green-500 hover:to-green-400 rounded-xl text-sm font-semibold shadow-lg hover:shadow-xl transition-all">▶ Start Queue</button>
+							{batchHook.batchQueue.length > 0 && batchHook.batchCurrentIndex === -1 && (
+								<button onClick={() => batchHook.handleStartBatchQueue()} className="mt-6 w-full py-3 bg-gradient-to-r from-green-600 to-green-500 hover:from-green-500 hover:to-green-400 rounded-xl text-sm font-semibold shadow-lg hover:shadow-xl transition-all">▶ Start Queue</button>
 							)}
-							{batchCurrentIndex >= 0 && (
+							{batchHook.batchCurrentIndex >= 0 && (
 								<div className="mt-6 p-4 bg-zinc-800/60 rounded-xl border border-zinc-700/50">
-									<p className="text-sm text-zinc-300 font-medium mb-3">Processing: <span className="text-amber-400">{batchQueue[batchCurrentIndex]?.scriptPath.split("/").pop()}</span></p>
+									<p className="text-sm text-zinc-300 font-medium mb-3">Processing: <span className="text-amber-400">{batchHook.batchQueue[batchHook.batchCurrentIndex]?.scriptPath.split("/").pop()}</span></p>
 									{progress && (
 										<div className="space-y-2">
 											<div className="h-2.5 bg-zinc-700 rounded-full overflow-hidden">
@@ -940,11 +300,6 @@ export default function App() {
 									)}
 								</div>
 							)}
-							{(view === "editor" || view === "complete") && (
-								<div className="pt-5 px-4 pb-4 border-b border-zinc-800">
-									<ModelSelector settings={settings} onChange={(s) => { setSettings(s); window.api.saveSettings(s); }} />
-								</div>
-							)}
 							<div className="flex-1 overflow-y-auto p-4">
 								<div className="flex items-center justify-between mb-4">
 									<div className="flex items-center gap-3">
@@ -975,14 +330,14 @@ export default function App() {
 										{(pipelineStateInfo as any)?.renderSegments?.completed > 0 ? (
 											<>
 												<button
-													onClick={() => setConfirm({ title: "Continue Render?", message: "This will continue rendering from where it stopped.", confirmLabel: "Continue", onConfirm: () => { setConfirm(null); handleRenderVideo("continue"); } })}
-													disabled={checkingAssets || previewingAll}
-													className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all shadow-sm ${checkingAssets || previewingAll ? "bg-zinc-700 text-zinc-500 cursor-wait" : "bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-black shadow-md hover:shadow-lg"}`}
+													onClick={() => setConfirm({ title: "Continue Render?", message: "This will continue rendering from where it stopped.", confirmLabel: "Continue", onConfirm: () => { setConfirm(null); pipeline.handleRenderVideo("continue"); } })}
+													disabled={assetsHook.checkingAssets || candidatesHook.previewingAll}
+													className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all shadow-sm ${assetsHook.checkingAssets || candidatesHook.previewingAll ? "bg-zinc-700 text-zinc-500 cursor-wait" : "bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-black shadow-md hover:shadow-lg"}`}
 												>
-													{previewingAll ? "Searching..." : checkingAssets ? "Checking..." : "▶ Continue"}
+													{candidatesHook.previewingAll ? "Searching..." : assetsHook.checkingAssets ? "Checking..." : "▶ Continue"}
 												</button>
 												<button
-													onClick={() => setConfirm({ title: "New Render?", message: "This will re-render the video from scratch, replacing the existing output.", confirmLabel: "New Render", onConfirm: () => { setConfirm(null); handleRenderVideo("render"); } })}
+													onClick={() => setConfirm({ title: "New Render?", message: "This will re-render the video from scratch, replacing the existing output.", confirmLabel: "New Render", onConfirm: () => { setConfirm(null); pipeline.handleRenderVideo("render"); } })}
 													className="text-[10px] text-zinc-500 hover:text-zinc-300 underline underline-offset-2"
 												>
 													New Render
@@ -992,7 +347,7 @@ export default function App() {
 											<button
 												onClick={() => {
 												const assetableBeats = scenePlan.beats.filter((b: any) => b.type === "clip" || b.type === "image");
-												const missingCount = assetableBeats.filter((b: any) => !assets[b.id]).length;
+												const missingCount = assetableBeats.filter((b: any) => !assetsHook.assets[b.id]).length;
 												const totalBeats = scenePlan.beats.length;
 												const estMin = Math.round(totalBeats * 0.5);
 												const lines = [
@@ -1007,22 +362,22 @@ export default function App() {
 													const checks = assetableBeats.length * (settings.maxThumbnailsPerQuery ?? 5);
 													lines.push(`~${checks} thumbnail AI checks`);
 												}
-												setConfirm({ title: "Render Video?", message: lines.join("\n"), confirmLabel: "Render", onConfirm: () => { setConfirm(null); handleRenderVideo("render"); } });
+												setConfirm({ title: "Render Video?", message: lines.join("\n"), confirmLabel: "Render", onConfirm: () => { setConfirm(null); pipeline.handleRenderVideo("render"); } });
 											}}
-												disabled={checkingAssets || previewingAll}
-												className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all shadow-sm ${checkingAssets || previewingAll ? "bg-zinc-700 text-zinc-500 cursor-wait" : "bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-black shadow-md hover:shadow-lg"}`}
+												disabled={assetsHook.checkingAssets || candidatesHook.previewingAll}
+												className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all shadow-sm ${assetsHook.checkingAssets || candidatesHook.previewingAll ? "bg-zinc-700 text-zinc-500 cursor-wait" : "bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-black shadow-md hover:shadow-lg"}`}
 											>
-												{previewingAll ? "Searching..." : checkingAssets ? "Checking..." : "▶ Render"}
+												{candidatesHook.previewingAll ? "Searching..." : assetsHook.checkingAssets ? "Checking..." : "▶ Render"}
 											</button>
 										)}
 									</div>
 									<div className="w-px h-6 bg-zinc-700/60 mx-1" />
 									<div className="flex items-center gap-1.5">
-										<button onClick={handlePreviewAll} disabled={previewingAll} className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all shadow-sm ${previewingAll ? "bg-zinc-700 text-zinc-500 cursor-wait" : "bg-zinc-700 hover:bg-zinc-600 text-zinc-200 shadow-sm hover:shadow-md"}`}>{previewingAll ? "Searching..." : "Preview"}</button>
-										{Object.keys(beatCandidates).length > 0 && (
-											<button onClick={handleDownloadAllSelected} disabled={previewingAll || Object.keys(assets).length >= scenePlan.beats.filter((b: any) => b.type === "clip" || b.type === "image").length} className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all shadow-sm ${previewingAll ? "bg-zinc-700 text-zinc-500 cursor-wait" : "bg-blue-600 hover:bg-blue-500 text-white shadow-sm hover:shadow-md"}`}>Download</button>
+										<button onClick={candidatesHook.handlePreviewAll} disabled={candidatesHook.previewingAll} className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all shadow-sm ${candidatesHook.previewingAll ? "bg-zinc-700 text-zinc-500 cursor-wait" : "bg-zinc-700 hover:bg-zinc-600 text-zinc-200 shadow-sm hover:shadow-md"}`}>{candidatesHook.previewingAll ? "Searching..." : "Preview"}</button>
+										{Object.keys(candidatesHook.beatCandidates).length > 0 && (
+											<button onClick={candidatesHook.handleDownloadAllSelected} disabled={candidatesHook.previewingAll || Object.keys(assetsHook.assets).length >= scenePlan.beats.filter((b: any) => b.type === "clip" || b.type === "image").length} className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all shadow-sm ${candidatesHook.previewingAll ? "bg-zinc-700 text-zinc-500 cursor-wait" : "bg-blue-600 hover:bg-blue-500 text-white shadow-sm hover:shadow-md"}`}>Download</button>
 										)}
-										<button onClick={handleCheckAllAssets} disabled={checkingAssets} className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all shadow-sm ${checkingAssets ? "bg-zinc-700 text-zinc-500 cursor-wait" : "bg-zinc-700 hover:bg-zinc-600 text-zinc-200 shadow-sm hover:shadow-md"}`}>{checkingAssets ? "Checking..." : "Check"}</button>
+										<button onClick={assetsHook.handleCheckAllAssets} disabled={assetsHook.checkingAssets} className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all shadow-sm ${assetsHook.checkingAssets ? "bg-zinc-700 text-zinc-500 cursor-wait" : "bg-zinc-700 hover:bg-zinc-600 text-zinc-200 shadow-sm hover:shadow-md"}`}>{assetsHook.checkingAssets ? "Checking..." : "Check"}</button>
 										<button
 											onClick={async () => {
 												if (!currentProjectId) return;
@@ -1033,7 +388,7 @@ export default function App() {
 													if (preview.clips) parts.push(`${preview.clips} clip${preview.clips > 1 ? "s" : ""}`);
 													if (preview.images) parts.push(`${preview.images} image${preview.images > 1 ? "s" : ""}`);
 													if (preview.thumbs) parts.push(`${preview.thumbs} thumbnail${preview.thumbs > 1 ? "s" : ""}`);
-													setConfirm({ title: `Delete ${preview.total} Orphaned File${preview.total > 1 ? "s" : ""}?`, message: `This will permanently delete ${parts.join(", ")}. These files don't match any beats in the current scene plan. This cannot be undone.`, confirmLabel: "Delete", onConfirm: () => { setConfirm(null); handleCleanAssets(); } });
+													setConfirm({ title: `Delete ${preview.total} Orphaned File${preview.total > 1 ? "s" : ""}?`, message: `This will permanently delete ${parts.join(", ")}. These files don't match any beats in the current scene plan. This cannot be undone.`, confirmLabel: "Delete", onConfirm: () => { setConfirm(null); assetsHook.handleCleanAssets(); } });
 												} catch (err: any) { setError({ title: "Preview Failed", message: err.message }); }
 											}}
 											className="px-4 py-2 rounded-lg text-xs font-semibold transition-all shadow-sm bg-zinc-700 hover:bg-red-900/30 text-red-400 hover:text-red-300 hover:shadow-md"
@@ -1041,41 +396,41 @@ export default function App() {
 									</div>
 									<div className="w-px h-6 bg-zinc-700/60 mx-1" />
 									<button
-										onClick={() => setConfirm({ title: "New Scene Plan?", message: "This will create a new scene plan from scratch. All assets for the current beats will be deleted and need to be re-downloaded.", confirmLabel: "New Plan", onConfirm: () => { setConfirm(null); handleRegenerate(); } })}
+										onClick={() => setConfirm({ title: "New Scene Plan?", message: "This will create a new scene plan from scratch. All assets for the current beats will be deleted and need to be re-downloaded.", confirmLabel: "New Plan", onConfirm: () => { setConfirm(null); pipeline.handleRegenerate(); } })}
 										disabled={regenerating}
 										className={`ml-auto px-4 py-2 rounded-lg text-xs font-semibold transition-all ${regenerating ? "bg-zinc-800 text-zinc-500 cursor-wait" : "bg-zinc-700 hover:bg-zinc-600 text-zinc-300"}`}
 									>{regenerating ? "Generating..." : "↻ New Scene Plan"}</button>
 								</div>
-								{Object.keys(assetValidation).length > 0 && (
+								{Object.keys(assetsHook.assetValidation).length > 0 && (
 									<div className="mb-2 px-1 text-xs">
 										{(() => {
-											const valid = Object.values(assetValidation).filter((v) => v.valid && v.hasAsset && v.reason !== "quality_failed").length;
-											const invalid = Object.values(assetValidation).filter((v) => !v.valid && v.hasAsset).length;
-											const missing = Object.values(assetValidation).filter((v) => !v.valid && !v.hasAsset).length;
-											const qualityFailed = Object.values(assetValidation).filter((v) => v.reason === "quality_failed").length;
+											const valid = Object.values(assetsHook.assetValidation).filter((v) => v.valid && v.hasAsset && v.reason !== "quality_failed").length;
+											const invalid = Object.values(assetsHook.assetValidation).filter((v) => !v.valid && v.hasAsset).length;
+											const missing = Object.values(assetsHook.assetValidation).filter((v) => !v.valid && !v.hasAsset).length;
+											const qualityFailed = Object.values(assetsHook.assetValidation).filter((v) => v.reason === "quality_failed").length;
 											return <span className={invalid > 0 || missing > 0 || qualityFailed > 0 ? "text-red-400" : "text-emerald-400"}>{valid} valid, {invalid} corrupt, {missing} missing, {qualityFailed} quality failed</span>;
 										})()}
 									</div>
 								)}
-								<BeatTimeline beats={scenePlan.beats} selectedBeatId={selectedBeatId} onSelectBeat={setSelectedBeatId} assets={assets} thumbnails={thumbnails} beatStatuses={beatStatuses} assetValidation={assetValidation} subscribeHintBeatIds={subscribeHintBeatIds} beatCandidates={beatCandidates} selectedCandidateIndex={selectedCandidateIndex} filterMode={beatFilter} onFilterChange={setBeatFilter} />
+								<BeatTimeline beats={scenePlan.beats} selectedBeatId={selectedBeatId} onSelectBeat={setSelectedBeatId} assets={assetsHook.assets} thumbnails={assetsHook.thumbnails} beatStatuses={assetsHook.beatStatuses} assetValidation={assetsHook.assetValidation} subscribeHintBeatIds={assetsHook.subscribeHintBeatIds} beatCandidates={candidatesHook.beatCandidates} selectedCandidateIndex={candidatesHook.selectedCandidateIndex} filterMode={beatFilter} onFilterChange={setBeatFilter} />
 							</div>
 							{view === "editor" && selectedBeat && (
 								<div className="border-t border-zinc-800">
 								<BeatEditor
 									beat={selectedBeat}
-									assetPath={assets[selectedBeat.id]}
-										onReDownload={handleReDownloadBeat}
-										onSaveSearch={handleSaveSearch}
-										onToggleOverlay={handleToggleOverlay}
-										onSearchBeat={handleSearchBeat}
-										onSelectCandidate={handleSelectCandidate}
-										onDownloadCandidate={handleDownloadCandidate}
-										isReDownloading={downloadingBeats.includes(selectedBeat.id) || downloadingCandidateBeat === selectedBeat.id}
-										beatStatus={beatStatuses[selectedBeat.id]}
-										subscribeHint={subscribeHintBeatIds.has(selectedBeat.id)}
-										candidates={beatCandidates[selectedBeat.id]}
-										selectedCandidateIndex={selectedCandidateIndex[selectedBeat.id]}
-										scriptSegment={beatTextSegments[selectedBeat.id]}
+									assetPath={assetsHook.assets[selectedBeat.id]}
+										onReDownload={assetsHook.handleReDownloadBeat}
+										onSaveSearch={assetsHook.handleSaveSearch}
+										onToggleOverlay={assetsHook.handleToggleOverlay}
+										onSearchBeat={candidatesHook.handleSearchBeat}
+										onSelectCandidate={candidatesHook.handleSelectCandidate}
+										onDownloadCandidate={candidatesHook.handleDownloadCandidate}
+										isReDownloading={assetsHook.downloadingBeats.includes(selectedBeat.id) || candidatesHook.downloadingCandidateBeat === selectedBeat.id}
+										beatStatus={assetsHook.beatStatuses[selectedBeat.id]}
+										subscribeHint={assetsHook.subscribeHintBeatIds.has(selectedBeat.id)}
+										candidates={candidatesHook.beatCandidates[selectedBeat.id]}
+										selectedCandidateIndex={candidatesHook.selectedCandidateIndex[selectedBeat.id]}
+										scriptSegment={assetsHook.beatTextSegments[selectedBeat.id]}
 									/>
 								</div>
 							)}
@@ -1093,7 +448,7 @@ export default function App() {
 									</div>
 									<div className="flex gap-3">
 										<button className="px-5 py-2.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 rounded-xl text-sm font-medium transition-all" onClick={() => setView("editor")}>← Back to Editor</button>
-										<button className="px-5 py-2.5 bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-black rounded-xl text-sm font-semibold shadow-lg hover:shadow-xl transition-all" onClick={() => setConfirm({ title: "New Render?", message: "This will re-render the video from scratch, replacing the existing output.", confirmLabel: "New Render", onConfirm: () => { setConfirm(null); handleRenderVideo("render"); } })}>New Render</button>
+										<button className="px-5 py-2.5 bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-black rounded-xl text-sm font-semibold shadow-lg hover:shadow-xl transition-all" onClick={() => setConfirm({ title: "New Render?", message: "This will re-render the video from scratch, replacing the existing output.", confirmLabel: "New Render", onConfirm: () => { setConfirm(null); pipeline.handleRenderVideo("render"); } })}>New Render</button>
 										<button className="px-5 py-2.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 rounded-xl text-sm font-medium transition-all" onClick={() => window.api.openInFinder(outputPath)}>📂 Open</button>
 									</div>
 								</div>
@@ -1112,9 +467,9 @@ export default function App() {
 									<div className="text-sm text-zinc-400 mb-6">{renderingError}</div>
 									<div className="flex gap-3 justify-center">
 										{(pipelineStateInfo as any)?.renderSegments && (pipelineStateInfo as any).renderSegments.completed > 0 && (
-											<button className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black rounded-lg text-sm font-medium" onClick={() => handleRenderVideo("continue")}>Continue Render</button>
+											<button className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black rounded-lg text-sm font-medium" onClick={() => pipeline.handleRenderVideo("continue")}>Continue Render</button>
 										)}
-										<button className="px-4 py-2 bg-zinc-700 hover:bg-zinc-600 rounded-lg text-sm font-medium" onClick={handleBackToEditor}>Back to Editor</button>
+										<button className="px-4 py-2 bg-zinc-700 hover:bg-zinc-600 rounded-lg text-sm font-medium" onClick={pipeline.handleBackToEditor}>Back to Editor</button>
 									</div>
 								</>
 							) : (
@@ -1169,7 +524,7 @@ export default function App() {
 									) : (
 										<div className="text-zinc-500 mb-4">Preparing pipeline...</div>
 									)}
-									<button className="px-4 py-2 bg-red-600 hover:bg-red-500 rounded-lg text-sm font-medium" onClick={handleStop}>Stop</button>
+									<button className="px-4 py-2 bg-red-600 hover:bg-red-500 rounded-lg text-sm font-medium" onClick={pipeline.handleStop}>Stop</button>
 								</>
 							)}
 						</div>
@@ -1193,8 +548,8 @@ export default function App() {
 									key={project.id}
 									onClick={async () => {
 										setShowResumePicker(false);
-										activePipelineProjectIdRef.current = project.id;
-										setCurrentProjectId(project.id);
+										pipeline.activePipelineProjectIdRef.current = project.id;
+										projectsHook.setCurrentProjectId(project.id);
 										setScriptPath(project.scriptPath ?? null);
 										setSrtPath(project.srtPath ?? null);
 										setVoPath(project.voPath);
@@ -1206,19 +561,19 @@ export default function App() {
 										setLogs([]);
 										setRenderingError(null);
 										setRegenerating(false);
-										setAssets({});
-										setThumbnails({});
-										setBeatStatuses({});
-										setAssetValidation({});
-										setDownloadingBeats([]);
-		setBeatCandidates(project.beatCandidates ?? {});
-		setSelectedCandidateIndex(project.selectedCandidateIndex ?? {});
-										setBeatTextSegments({});
+										assetsHook.setAssets({});
+										assetsHook.setThumbnails({});
+										assetsHook.setBeatStatuses({});
+										assetsHook.setAssetValidation({});
+										assetsHook.setDownloadingBeats([]);
+										candidatesHook.setBeatCandidates(project.beatCandidates ?? {});
+										candidatesHook.setSelectedCandidateIndex(project.selectedCandidateIndex ?? {});
+										assetsHook.setBeatTextSegments({});
 										setSelectedBeatId(null);
-										setReDownloadingBeat(null);
-										setCheckingAssets(false);
-										setPreviewingAll(false);
-										setDownloadingCandidateBeat(null);
+										assetsHook.setReDownloadingBeat(null);
+										assetsHook.setCheckingAssets(false);
+										candidatesHook.setPreviewingAll(false);
+										candidatesHook.setDownloadingCandidateBeat(null);
 										try { await window.api.resumePipeline(project.id); } catch {}
 									}}
 									className="w-full text-left p-3 rounded-lg bg-zinc-800 hover:bg-zinc-700 border border-zinc-700"

@@ -46,11 +46,20 @@ export const Documentary: React.FC<DocumentaryProps> = ({
 }) => {
   const { fps } = useVideoConfig();
 
+  const beatFrames = scenePlan.beats.reduce((acc, beat) => {
+    const dur = Math.round(beat.duration * fps);
+    const prev = acc.length > 0 ? acc[acc.length - 1] : null;
+    acc.push({ from: prev ? prev.end : 0, end: (prev ? prev.end : 0) + dur, durationInFrames: dur });
+    return acc;
+  }, [] as { from: number; end: number; durationInFrames: number }[]);
+
+  const overlayFrameMap = new Map<string, { from: number; durationInFrames: number }>();
+  scenePlan.beats.forEach((b, i) => overlayFrameMap.set(b.id, beatFrames[i]));
+
   return (
     <AbsoluteFill style={{ backgroundColor: "#000" }}>
-      {scenePlan.beats.map((beat) => {
-        const from = Math.floor(beat.startTime * fps);
-        const durationInFrames = Math.floor(beat.duration * fps);
+      {scenePlan.beats.map((beat, idx) => {
+        const { from, durationInFrames } = beatFrames[idx];
         const transitionOffset = Math.floor((beat.transitionDuration ?? 0) / 2);
 
         return (
@@ -75,19 +84,22 @@ export const Documentary: React.FC<DocumentaryProps> = ({
 
       {scenePlan.beats
         .filter(b => b.overlay?.type === "subscribe_cta")
-        .map(beat => (
-          <Sequence
-            key={`overlay-${beat.id}`}
-            from={Math.floor(beat.startTime * fps)}
-            durationInFrames={180}
-          >
-            <GraphicOverlay
-              overlay={beat.overlay!}
-              clipDurationFrames={Math.floor(beat.duration * fps)}
-              vfxDurationFrames={180}
-            />
-          </Sequence>
-        ))}
+        .map(beat => {
+          const frames = overlayFrameMap.get(beat.id)!;
+          return (
+            <Sequence
+              key={`overlay-${beat.id}`}
+              from={frames.from}
+              durationInFrames={180}
+            >
+              <GraphicOverlay
+                overlay={beat.overlay!}
+                clipDurationFrames={frames.durationInFrames}
+                vfxDurationFrames={180}
+              />
+            </Sequence>
+          );
+        })}
 
       {voPath && (
         <Audio src={voPath} volume={1} />

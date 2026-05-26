@@ -154,7 +154,7 @@ export default function BeatEditor({ beat, assetPath, onReDownload, onSaveSearch
 			{scriptSegment && (
 				<div className="mt-3 pt-3 border-t border-zinc-800">
 					<div className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500 mb-1">Script</div>
-					<div className="text-[11px] text-zinc-400 italic bg-zinc-800/50 rounded p-2 max-h-16 overflow-y-auto line-clamp-3">{scriptSegment}</div>
+					<div className="text-[11px] text-zinc-400 italic bg-zinc-800/50 rounded p-2 truncate">{scriptSegment}</div>
 				</div>
 			)}
 		</div>
