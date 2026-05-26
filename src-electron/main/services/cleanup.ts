@@ -19,6 +19,16 @@ export function runPeriodicCleanup(cleanupAfterDays: number): void {
     const outputDir = path.join(projectsDir, entry, "output");
     if (!fs.existsSync(outputDir)) continue;
 
+    const statePath = path.join(outputDir, "pipeline_state.json");
+    if (fs.existsSync(statePath)) {
+      try {
+        const state = JSON.parse(fs.readFileSync(statePath, "utf-8"));
+        if (state.status !== "completed" && state.status !== "failed") continue;
+      } catch { continue; }
+    } else {
+      continue;
+    }
+
     for (const subDir of ["clips", "images"]) {
       const dirPath = path.join(outputDir, subDir);
       if (!fs.existsSync(dirPath)) continue;
