@@ -47,6 +47,7 @@ export default function App() {
 	const [showSessionDetails, setShowSessionDetails] = useState(false);
 	const [regenerating, setRegenerating] = useState(false);
 	const [pipelineStateInfo, setPipelineStateInfo] = useState<PipelineStateInfo | null>(null);
+	const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
 	const [selectedResolution, setSelectedResolution] = useState(1080);
 	const [showResumePicker, setShowResumePicker] = useState(false);
 	const [resumeOptions, setResumeOptions] = useState<any[]>([]);
@@ -54,6 +55,12 @@ export default function App() {
 	const [beatFilter, setBeatFilter] = useState<string | null>(null);
 
 	const logsEndRef = useRef<HTMLDivElement>(null);
+	const currentProjectIdRef = useRef<string | null>(null);
+	const activePipelineProjectIdRef = useRef<string | null>(null);
+	const pendingPlanProjectIdRef = useRef<string | null>(null);
+	const autoSaveProjectRef = useRef(async (_s: string, _e?: any) => {});
+
+	useEffect(() => { currentProjectIdRef.current = currentProjectId; }, [currentProjectId]);
 
 	useEffect(() => {
 		window.api.getSettings().then(setSettings);
@@ -77,38 +84,44 @@ export default function App() {
 		if (files.music) setMusicPath(files.music);
 	}, []);
 
-	const pipeline = usePipeline({
-		settings, scriptPath, srtPath, voPath, musicPath, scenePlan, currentProjectId: null,
-		currentProjectIdRef: { current: null } as any, selectedResolution, batchCurrentIndex: -1,
-		beatCandidates: {}, assets: {},
-		autoSaveProject: async () => {}, refreshProjects: async () => {}, openSettings,
-		setScenePlan, setView, setError, setProgress, setLogs, setOutputPath,
-		setRenderingError, setRenderStartTime, setRenderElapsed, setPreviousElapsed,
-		setSessionTimes, setShowSessionDetails, setRegenerating, setPipelineStateInfo,
-		setAssets: () => {}, setThumbnails: () => {}, setBeatStatuses: () => {},
-		setAssetValidation: () => {}, setDownloadingBeats: () => {},
-		setBeatCandidates: () => {}, setSelectedCandidateIndex: () => {}, setBatchQueue: () => {},
-	});
-
 	const assetsHook = useAssets({
-		currentProjectId: null, currentProjectIdRef: pipeline.currentProjectIdRef,
+		currentProjectId, currentProjectIdRef,
 		scenePlan, scriptPath, voPath, srtPath,
-		autoSaveProjectRef: pipeline.autoSaveProjectRef,
-		setScenePlan, setError,
-		setBeatCandidates: () => {}, selectedCandidateIndex: {}, beatCandidates: {},
+		autoSaveProjectRef, setScenePlan, setError,
 	});
 
 	const candidatesHook = useBeatCandidates({
-		currentProjectId: null, currentProjectIdRef: pipeline.currentProjectIdRef,
+		currentProjectId, currentProjectIdRef,
 		scenePlan, settings, assets: assetsHook.assets,
 		setBeatStatuses: assetsHook.setBeatStatuses,
 		setAssets: assetsHook.setAssets, setThumbnails: assetsHook.setThumbnails, setError,
-		selectedCandidateIndex: {}, beatCandidates: {},
+	});
+
+	const batchHook = useBatchQueue({
+		activePipelineProjectIdRef,
+		setView, setLogs, setError, setRenderingError,
+	});
+
+	const pipeline = usePipeline({
+		settings, scriptPath, srtPath, voPath, musicPath, scenePlan, currentProjectId,
+		currentProjectIdRef, activePipelineProjectIdRef, pendingPlanProjectIdRef,
+		autoSaveProjectRef, selectedResolution,
+		batchCurrentIndex: batchHook.batchCurrentIndex,
+		openSettings, refreshProjects: async () => {},
+		setScenePlan, setView, setError, setProgress, setLogs, setOutputPath,
+		setRenderingError, setRenderStartTime, setRenderElapsed, setPreviousElapsed,
+		setSessionTimes, setShowSessionDetails, setRegenerating, setPipelineStateInfo,
+		setAssets: assetsHook.setAssets, setThumbnails: assetsHook.setThumbnails,
+		setBeatStatuses: assetsHook.setBeatStatuses, setAssetValidation: assetsHook.setAssetValidation,
+		setDownloadingBeats: assetsHook.setDownloadingBeats,
+		setBeatCandidates: candidatesHook.setBeatCandidates,
+		setSelectedCandidateIndex: candidatesHook.setSelectedCandidateIndex,
+		setBatchQueue: batchHook.setBatchQueue,
 	});
 
 	const projectsHook = useProjects({
-		activePipelineProjectIdRef: pipeline.activePipelineProjectIdRef,
-		pendingPlanProjectIdRef: pipeline.pendingPlanProjectIdRef,
+		activePipelineProjectIdRef, pendingPlanProjectIdRef,
+		currentProjectId, setCurrentProjectId,
 		scriptPath, srtPath, voPath, musicPath, scenePlan,
 		assets: assetsHook.assets, beatCandidates: candidatesHook.beatCandidates,
 		selectedCandidateIndex: candidatesHook.selectedCandidateIndex,
@@ -130,12 +143,9 @@ export default function App() {
 		setRegenerating, setOutputPath, setPipelineStateInfo, setConfirm,
 	});
 
-	const batchHook = useBatchQueue({
-		activePipelineProjectIdRef: pipeline.activePipelineProjectIdRef,
-		setView, setLogs, setError, setRenderingError,
-	});
-
-	const currentProjectId = projectsHook.currentProjectId;
+	useEffect(() => {
+		autoSaveProjectRef.current = projectsHook.autoSaveProject;
+	}, [projectsHook.autoSaveProject]);
 
 	useEffect(() => {
 		if (view !== "editor" || !scenePlan?.beats?.length) return;
@@ -171,7 +181,7 @@ export default function App() {
 	useEffect(() => {
 		if (!currentProjectId || !scenePlan) return;
 		if (Object.keys(assetsHook.assets).length === 0 && Object.keys(candidatesHook.beatCandidates).length === 0) return;
-		const timer = setTimeout(() => { pipeline.autoSaveProjectRef.current("editing"); }, 1000);
+		const timer = setTimeout(() => { autoSaveProjectRef.current("editing"); }, 1000);
 		return () => clearTimeout(timer);
 	}, [assetsHook.assets, candidatesHook.beatCandidates, currentProjectId, scenePlan]);
 
@@ -548,8 +558,8 @@ export default function App() {
 									key={project.id}
 									onClick={async () => {
 										setShowResumePicker(false);
-										pipeline.activePipelineProjectIdRef.current = project.id;
-										projectsHook.setCurrentProjectId(project.id);
+										activePipelineProjectIdRef.current = project.id;
+										setCurrentProjectId(project.id);
 										setScriptPath(project.scriptPath ?? null);
 										setSrtPath(project.srtPath ?? null);
 										setVoPath(project.voPath);

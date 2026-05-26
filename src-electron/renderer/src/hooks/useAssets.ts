@@ -23,9 +23,6 @@ interface UseAssetsDeps {
 	autoSaveProjectRef: React.MutableRefObject<(status: string, extra?: any) => Promise<void>>;
 	setScenePlan: (v: any) => void;
 	setError: (v: { title: string; message: string } | null) => void;
-	setBeatCandidates: (v: Record<string, any[]>) => void;
-	selectedCandidateIndex: Record<string, number>;
-	beatCandidates: Record<string, any[]>;
 }
 
 export function useAssets(deps: UseAssetsDeps) {
@@ -48,17 +45,28 @@ export function useAssets(deps: UseAssetsDeps) {
 		const entries = Object.entries(assets);
 		if (entries.length === 0) return;
 		let cancelled = false;
+		const pid = currentProjectId;
 		const loadThumbs = async () => {
-			const newThumbs: Record<string, string> = {};
-			for (const [beatId, assetPath] of entries) {
+			const toLoad = entries.filter(([beatId]) => !thumbnails[beatId]);
+			if (toLoad.length === 0) return;
+			const batchSize = 10;
+			for (let i = 0; i < toLoad.length; i += batchSize) {
 				if (cancelled) break;
-				if (thumbnails[beatId]) { newThumbs[beatId] = thumbnails[beatId]; continue; }
-				try {
-					const thumb = await window.api.getBeatThumbnail(beatId, assetPath, currentProjectId ?? undefined);
-					if (thumb) newThumbs[beatId] = thumb;
-				} catch {}
+				const batch = toLoad.slice(i, i + batchSize);
+				const results = await Promise.allSettled(batch.map(async ([beatId, assetPath]) => {
+					const thumb = await window.api.getBeatThumbnail(beatId, assetPath, pid ?? undefined);
+					return thumb ? [beatId, thumb] as const : null;
+				}));
+				const newThumbs: Record<string, string> = {};
+				for (const r of results) {
+					if (r.status === "fulfilled" && r.value) {
+						newThumbs[r.value[0]] = r.value[1];
+					}
+				}
+				if (!cancelled && Object.keys(newThumbs).length > 0) {
+					setThumbnails((prev) => ({ ...prev, ...newThumbs }));
+				}
 			}
-			if (!cancelled && Object.keys(newThumbs).length > 0) setThumbnails((prev) => ({ ...prev, ...newThumbs }));
 		};
 		loadThumbs();
 		return () => { cancelled = true; };

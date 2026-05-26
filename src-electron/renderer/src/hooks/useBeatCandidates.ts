@@ -6,9 +6,9 @@ interface UseBeatCandidatesDeps {
 	scenePlan: any;
 	settings: any;
 	assets: Record<string, string>;
-	setBeatStatuses: (updater: (prev: Record<string, any>) => Record<string, any>) => void;
-	setAssets: (updater: (prev: Record<string, string>) => Record<string, string>) => void;
-	setThumbnails: (updater: (prev: Record<string, string>) => Record<string, string>) => void;
+	setBeatStatuses: (v: Record<string, any> | ((prev: Record<string, any>) => Record<string, any>)) => void;
+	setAssets: (v: Record<string, string> | ((prev: Record<string, string>) => Record<string, string>)) => void;
+	setThumbnails: (v: Record<string, string> | ((prev: Record<string, string>) => Record<string, string>)) => void;
 	setError: (v: { title: string; message: string } | null) => void;
 	selectedCandidateIndex: Record<string, number>;
 	beatCandidates: Record<string, any[]>;

@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import type { PipelineProgress, PipelineStateInfo } from "../../shared/types";
 
 export interface ErrorInfo {
@@ -37,13 +37,13 @@ interface UsePipelineDeps {
 	scenePlan: any;
 	currentProjectId: string | null;
 	currentProjectIdRef: React.MutableRefObject<string | null>;
+	activePipelineProjectIdRef: React.MutableRefObject<string | null>;
+	pendingPlanProjectIdRef: React.MutableRefObject<string | null>;
+	autoSaveProjectRef: React.MutableRefObject<(status: string, extra?: any) => Promise<void>>;
 	selectedResolution: number;
 	batchCurrentIndex: number;
-	beatCandidates: Record<string, any[]>;
-	assets: Record<string, string>;
-	autoSaveProject: (status: string, extra?: any) => Promise<void>;
-	refreshProjects: () => Promise<void>;
 	openSettings: () => void;
+	refreshProjects: () => Promise<void>;
 	setScenePlan: (v: any) => void;
 	setView: (v: string) => void;
 	setError: (v: ErrorInfo | null) => void;
@@ -58,9 +58,9 @@ interface UsePipelineDeps {
 	setShowSessionDetails: (v: boolean) => void;
 	setRegenerating: (v: boolean) => void;
 	setPipelineStateInfo: (v: PipelineStateInfo | null) => void;
-	setAssets: (v: Record<string, string>) => void;
+	setAssets: (v: Record<string, string> | ((prev: Record<string, string>) => Record<string, string>)) => void;
 	setThumbnails: (v: Record<string, string>) => void;
-	setBeatStatuses: (v: Record<string, any>) => void;
+	setBeatStatuses: (v: Record<string, any> | ((prev: Record<string, any>) => Record<string, any>)) => void;
 	setAssetValidation: (v: Record<string, any>) => void;
 	setDownloadingBeats: (v: string[]) => void;
 	setBeatCandidates: (v: Record<string, any[]>) => void;
@@ -71,8 +71,8 @@ interface UsePipelineDeps {
 export function usePipeline(deps: UsePipelineDeps) {
 	const {
 		settings, scriptPath, srtPath, voPath, musicPath, scenePlan, currentProjectId,
-		currentProjectIdRef, selectedResolution, batchCurrentIndex, beatCandidates, assets,
-		autoSaveProject, refreshProjects, openSettings,
+		currentProjectIdRef, activePipelineProjectIdRef, pendingPlanProjectIdRef,
+		autoSaveProjectRef, selectedResolution, batchCurrentIndex, openSettings, refreshProjects,
 		setScenePlan, setView, setError, setProgress, setLogs, setOutputPath,
 		setRenderingError, setRenderStartTime, setRenderElapsed, setPreviousElapsed,
 		setSessionTimes, setShowSessionDetails, setRegenerating, setPipelineStateInfo,
@@ -80,19 +80,14 @@ export function usePipeline(deps: UsePipelineDeps) {
 		setBeatCandidates, setSelectedCandidateIndex, setBatchQueue,
 	} = deps;
 
-	const activePipelineProjectIdRef = useRef<string | null>(null);
 	const isRenderingRef = useRef(false);
 	const renderStartTimeRef = useRef<number | null>(null);
 	const viewRef = useRef<string>("input");
 	const scenePlanRef = useRef<any>(null);
-	const autoSaveProjectRef = useRef(autoSaveProject);
 	const openSettingsRef = useRef(openSettings);
-	const pendingPlanProjectIdRef = useRef<string | null>(null);
 
-	autoSaveProjectRef.current = autoSaveProject;
 	openSettingsRef.current = openSettings;
 	scenePlanRef.current = scenePlan;
-	currentProjectIdRef.current = currentProjectId;
 
 	useEffect(() => {
 		const unsubProgress = window.api.onProgress((p: PipelineProgress) => {
@@ -224,7 +219,7 @@ export function usePipeline(deps: UsePipelineDeps) {
 		setError(null);
 		setLogs([]);
 		pendingPlanProjectIdRef.current = pid;
-		await autoSaveProject("planning");
+		await autoSaveProjectRef.current("planning");
 		try {
 			const plan = await window.api.previewScenePlan(scriptPath ?? undefined, voPath!, pid ?? undefined, srtPath ?? undefined);
 			if (currentProjectIdRef.current !== pid) {
@@ -243,7 +238,7 @@ export function usePipeline(deps: UsePipelineDeps) {
 			}
 			setView("planning");
 		}
-	}, [scriptPath, voPath, validate, openSettings, autoSaveProject, currentProjectId]);
+	}, [scriptPath, voPath, validate, openSettings, currentProjectId]);
 
 	const handleRegenerate = useCallback(async () => {
 		if (!validate(true)) return;
@@ -266,7 +261,7 @@ export function usePipeline(deps: UsePipelineDeps) {
 				return;
 			}
 			setScenePlan(plan);
-			autoSaveProject("editing", { scenePlan: plan });
+			autoSaveProjectRef.current("editing", { scenePlan: plan });
 			if (pid) try { await window.api.cleanAssets(pid); } catch {}
 			setAssets({});
 			setThumbnails({});
@@ -276,7 +271,7 @@ export function usePipeline(deps: UsePipelineDeps) {
 		} finally {
 			if (currentProjectIdRef.current === pid) setRegenerating(false);
 		}
-	}, [scriptPath, voPath, validate, autoSaveProject, currentProjectId]);
+	}, [scriptPath, voPath, validate, currentProjectId]);
 
 	const handleRenderVideo = useCallback(async (mode = "render") => {
 		if (isRenderingRef.current) return;
@@ -342,9 +337,7 @@ export function usePipeline(deps: UsePipelineDeps) {
 	}, []);
 
 	return {
-		activePipelineProjectIdRef, isRenderingRef, renderStartTimeRef,
-		viewRef, scenePlanRef, autoSaveProjectRef, openSettingsRef,
-		pendingPlanProjectIdRef, currentProjectIdRef,
+		isRenderingRef, renderStartTimeRef, viewRef, scenePlanRef,
 		validate, doPreview, handleRegenerate, handleRenderVideo,
 		handleStop, handleBackToEditor, fmtElapsed,
 	};

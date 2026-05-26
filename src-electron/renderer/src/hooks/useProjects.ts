@@ -1,9 +1,11 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect } from "react";
 import type { SavedProject } from "../../shared/types";
 
 interface UseProjectsDeps {
 	activePipelineProjectIdRef: React.MutableRefObject<string | null>;
 	pendingPlanProjectIdRef: React.MutableRefObject<string | null>;
+	currentProjectId: string | null;
+	setCurrentProjectId: (v: string | null) => void;
 	scriptPath: string | null;
 	srtPath: string | null;
 	voPath: string | null;
@@ -46,6 +48,7 @@ interface UseProjectsDeps {
 export function useProjects(deps: UseProjectsDeps) {
 	const {
 		activePipelineProjectIdRef, pendingPlanProjectIdRef,
+		currentProjectId, setCurrentProjectId,
 		scriptPath, srtPath, voPath, musicPath, scenePlan, assets, beatCandidates, selectedCandidateIndex,
 		setScriptPath, setSrtPath, setVoPath, setMusicPath, setScenePlan, setAssets, setThumbnails,
 		setBeatStatuses, setAssetValidation, setDownloadingBeats, setBeatCandidates, setSelectedCandidateIndex,
@@ -56,8 +59,6 @@ export function useProjects(deps: UseProjectsDeps) {
 	} = deps;
 
 	const [projects, setProjects] = useState<SavedProject[]>([]);
-	const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
-	const currentProjectIdRef = useRef<string | null>(null);
 
 	useEffect(() => {
 		window.api.listProjects().then(setProjects);
@@ -181,8 +182,7 @@ export function useProjects(deps: UseProjectsDeps) {
 	}, [currentProjectId, refreshProjects]);
 
 	return {
-		projects, setProjects, currentProjectId, setCurrentProjectId, currentProjectIdRef,
-		refreshProjects, autoSaveProject, handleOpenProject, handleNewProject,
-		handleRenameProject, handleDeleteProject,
+		projects, setProjects, refreshProjects, autoSaveProject,
+		handleOpenProject, handleNewProject, handleRenameProject, handleDeleteProject,
 	};
 }
