@@ -6,6 +6,7 @@ interface Beat {
 	id: string;
 	type: string;
 	duration: number;
+	startTime?: number;
 	searchQuery?: string;
 	imageAnimation?: string;
 	overlay?: { type: string; [key: string]: any };
@@ -36,6 +37,12 @@ interface BeatEditorProps {
 	scriptSegment: string | undefined;
 }
 
+function fmtTime(seconds: number): string {
+	const m = Math.floor(seconds / 60);
+	const s = Math.floor(seconds % 60);
+	return `${m}:${String(s).padStart(2, "0")}`;
+}
+
 export default function BeatEditor({ beat, assetPath, onReDownload, onSaveSearch, onToggleOverlay, onSearchBeat, onSelectCandidate, onDownloadCandidate, isReDownloading, beatStatus, subscribeHint, candidates, selectedCandidateIndex, scriptSegment }: BeatEditorProps) {
 	const [query, setQuery] = useState(beat.searchQuery ?? "");
 
@@ -48,16 +55,33 @@ export default function BeatEditor({ beat, assetPath, onReDownload, onSaveSearch
 	const isChecking = beatStatus?.status === "checking";
 	const isActive = isDownloading || isSearching || isChecking;
 
+	const startTime = beat.startTime ?? 0;
+	const endTime = startTime + beat.duration;
+
+	const saveIfChanged = () => {
+		const trimmed = query.trim();
+		if (trimmed && trimmed !== beat.searchQuery) {
+			onSaveSearch?.(beat.id, trimmed);
+		}
+	};
+
 	return (
-		<div className="bg-zinc-900 p-3 border-t border-zinc-800">
-			<div className="flex items-center gap-2 text-xs text-zinc-400 flex-wrap mb-3">
+		<div className="bg-zinc-900 p-2 border-t border-zinc-800">
+			<div className="flex items-center gap-1.5 text-xs text-zinc-400 flex-wrap mb-1.5">
 				<span className="font-mono text-zinc-300">{beat.id}</span>
+				<span className="text-zinc-600 text-[10px] tabular-nums">{fmtTime(startTime)}–{fmtTime(endTime)}</span>
 				<span className="text-zinc-600">•</span>
 				<span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${beat.type === "clip" ? "bg-blue-500/20 text-blue-300" : "bg-purple-500/20 text-purple-300"}`}>{beat.type}</span>
 				<span className="text-zinc-600">•</span>
 				<span>{beat.duration.toFixed(2)}s</span>
 				<span className="text-zinc-600">•</span>
 				{assetPath ? <span className="text-emerald-400">✓ Ready</span> : <span className="text-red-400">Missing</span>}
+				{candidates && candidates.length > 0 && (
+					<>
+						<span className="text-zinc-600">•</span>
+						<span className="text-zinc-500">{candidates.length} candidate{candidates.length !== 1 ? "s" : ""}</span>
+					</>
+				)}
 				{beat.type === "image" && beat.imageAnimation && (
 					<>
 						<span className="text-zinc-600">•</span>
@@ -84,6 +108,12 @@ export default function BeatEditor({ beat, assetPath, onReDownload, onSaveSearch
 						</span>
 					</>
 				)}
+				{scriptSegment && (
+					<>
+						<span className="text-zinc-700 mx-0.5">|</span>
+						<span className="text-[11px] text-zinc-500 italic truncate">{scriptSegment}</span>
+					</>
+				)}
 			</div>
 
 			{candidates && candidates.length > 0 && (
@@ -97,66 +127,57 @@ export default function BeatEditor({ beat, assetPath, onReDownload, onSaveSearch
 				/>
 			)}
 
-			<div className="flex items-center gap-2 mt-3 pt-3 border-t border-zinc-800">
-				<span className="text-xs text-zinc-500 shrink-0">Search</span>
+			<div className="flex items-center gap-1.5 mt-1.5 pt-1.5 border-t border-zinc-800">
 				<input
 					type="text"
 					value={query}
 					onChange={(e) => setQuery(e.target.value)}
-					className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/30 transition-all"
-					placeholder="Enter search query..."
+					onBlur={saveIfChanged}
+					onKeyDown={(e) => { if (e.key === "Enter") saveIfChanged(); }}
+					className="flex-1 max-w-[66%] bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/30 transition-all"
+					placeholder="Search query..."
 				/>
-				<button
-					onClick={() => onSaveSearch?.(beat.id, query)}
-					disabled={!query.trim()}
-					className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${!query.trim() ? "bg-zinc-700 text-zinc-500 cursor-not-allowed" : "bg-zinc-600 hover:bg-zinc-500 text-zinc-200"}`}
-				>
-					Save
-				</button>
 				<button
 					onClick={() => onSearchBeat?.(beat.id, query)}
 					disabled={isReDownloading || isSearching || !query.trim()}
-					className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${isReDownloading || isSearching || !query.trim() ? "bg-zinc-700 text-zinc-500 cursor-not-allowed" : "bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-zinc-900 font-semibold"}`}
+					className={`px-2.5 py-1 rounded text-[10px] font-medium transition-colors ${isReDownloading || isSearching || !query.trim() ? "bg-zinc-700 text-zinc-500 cursor-not-allowed" : "bg-zinc-600 hover:bg-zinc-500 text-zinc-200"}`}
 				>
 					{isSearching ? "Searching..." : "Preview"}
 				</button>
 				<button
-					onClick={() => onReDownload?.(beat.id, query)}
-					disabled={isReDownloading || !query.trim()}
-					className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${isReDownloading || !query.trim() ? "bg-zinc-700 text-zinc-500 cursor-not-allowed" : "bg-zinc-600 hover:bg-zinc-500 text-zinc-200"}`}
+					onClick={() => {
+						if (candidates && candidates.length > 0) {
+							onDownloadCandidate?.(beat.id, selectedCandidateIndex ?? 0);
+						}
+					}}
+					disabled={isReDownloading || isDownloading || !candidates || candidates.length === 0 || !!assetPath}
+					className={`px-2.5 py-1 rounded text-[10px] font-medium transition-colors ${isReDownloading || isDownloading || !candidates || candidates.length === 0 || !!assetPath ? "bg-zinc-700 text-zinc-500 cursor-not-allowed" : "bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-zinc-900 font-semibold"}`}
 				>
-					{isReDownloading ? "..." : "Re-download"}
+					{isDownloading ? "Downloading..." : assetPath ? "Downloaded" : "Download"}
 				</button>
 				<button
 					onClick={() => assetPath && window.api.openInFinder(assetPath)}
 					disabled={!assetPath}
-					className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${!assetPath ? "bg-zinc-700 text-zinc-500 cursor-not-allowed" : "bg-zinc-600 hover:bg-zinc-500 text-zinc-200"}`}
+					className={`px-2.5 py-1 rounded text-[10px] font-medium transition-colors ${!assetPath ? "bg-zinc-700 text-zinc-500 cursor-not-allowed" : "bg-zinc-600 hover:bg-zinc-500 text-zinc-200"}`}
 				>
 					Finder
 				</button>
 				{!beat.overlay ? (
 					<button
 						onClick={() => onToggleOverlay?.(beat.id)}
-						className="px-3 py-1.5 rounded text-xs font-medium transition-colors bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 border border-amber-500/30"
+						className="px-2.5 py-1 rounded text-[10px] font-medium transition-colors bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 border border-amber-500/30"
 					>
 						Add CTA
 					</button>
 				) : (
 					<button
 						onClick={() => onToggleOverlay?.(beat.id)}
-						className="px-3 py-1.5 rounded text-xs font-medium transition-colors bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/30"
+						className="px-2.5 py-1 rounded text-[10px] font-medium transition-colors bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/30"
 					>
 						Remove CTA
 					</button>
 				)}
 			</div>
-
-			{scriptSegment && (
-				<div className="mt-3 pt-3 border-t border-zinc-800">
-					<div className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500 mb-1">Script</div>
-					<div className="text-[11px] text-zinc-400 italic bg-zinc-800/50 rounded p-2 truncate">{scriptSegment}</div>
-				</div>
-			)}
 		</div>
 	);
 }

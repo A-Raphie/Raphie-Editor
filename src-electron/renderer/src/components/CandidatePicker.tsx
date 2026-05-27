@@ -10,98 +10,72 @@ interface CandidatePickerProps {
 	hasAsset: boolean;
 }
 
-const PAGE_SIZE = 5;
-
 export default function CandidatePicker({ candidates, selectedIndex, onSelect, onDownload, isDownloading, hasAsset }: CandidatePickerProps) {
-	const [page, setPage] = useState(0);
 	const [fullscreenIndex, setFullscreenIndex] = useState<number | null>(null);
 	const videoRefs = useRef<Record<number, HTMLVideoElement>>({});
-
-	const totalPages = Math.ceil(candidates.length / PAGE_SIZE);
-
-	useEffect(() => {
-		setPage(0);
-	}, [candidates.length]);
+	const scrollRef = useRef<HTMLDivElement>(null);
+	const selectedRef = useRef<HTMLDivElement>(null);
 
 	useEffect(() => {
-		const handleKey = (e: KeyboardEvent) => {
-			if (e.key === "Escape") { setFullscreenIndex(null); return; }
-			if (fullscreenIndex !== null) return;
-			if (e.key === "ArrowRight" && page < totalPages - 1) setPage((p) => p + 1);
-			if (e.key === "ArrowLeft" && page > 0) setPage((p) => p - 1);
-		};
-		window.addEventListener("keydown", handleKey);
-		return () => window.removeEventListener("keydown", handleKey);
-	}, [page, totalPages, fullscreenIndex]);
+		if (selectedRef.current) {
+			selectedRef.current.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+		}
+	}, [selectedIndex]);
+
+	useEffect(() => {
+		const container = scrollRef.current;
+		if (!container) return;
+		const observer = new IntersectionObserver(
+			(entries) => {
+				for (const entry of entries) {
+					const video = entry.target as HTMLVideoElement;
+					if (entry.isIntersecting) {
+						video.play().catch(() => {});
+					} else {
+						video.pause();
+					}
+				}
+			},
+			{ root: container, threshold: 0.5 }
+		);
+		const videos = container.querySelectorAll("video");
+		videos.forEach((v) => observer.observe(v));
+		return () => observer.disconnect();
+	}, [candidates]);
 
 	if (candidates.length === 0) return null;
-
-	const start = page * PAGE_SIZE;
-	const end = Math.min(start + PAGE_SIZE, candidates.length);
-	const visible = candidates.slice(start, end);
-	const showPagination = candidates.length > PAGE_SIZE;
 
 	const fsCandidate = fullscreenIndex !== null ? candidates[fullscreenIndex] : null;
 	const fsIsClip = fsCandidate?.type === "clip";
 
 	return (
 		<>
-			<div className="mt-2 pt-2 border-t border-zinc-800">
-				<div className="flex items-center justify-between mb-2">
-					<span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-400">
-						{candidates.length} candidate{candidates.length !== 1 ? "s" : ""}
-					</span>
-					<button
-						onClick={() => onDownload(selectedIndex)}
-						disabled={isDownloading || hasAsset}
-						className={`px-3 py-1 rounded text-[10px] font-semibold transition-all ${isDownloading ? "bg-zinc-700 text-zinc-500 cursor-wait" : hasAsset ? "bg-emerald-600/20 text-emerald-400 cursor-default" : "bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-black"}`}
-					>
-						{isDownloading ? "Downloading..." : hasAsset ? "Downloaded" : "Download This"}
-					</button>
-				</div>
-				{showPagination && (
-					<div className="flex items-center justify-center gap-2 mb-2">
-						<button
-							onClick={() => setPage((p) => Math.max(0, p - 1))}
-							disabled={page === 0}
-							className={`w-6 h-6 rounded flex items-center justify-center text-xs font-bold transition-all ${page === 0 ? "bg-zinc-800 text-zinc-700 cursor-default" : "bg-zinc-700 hover:bg-zinc-600 text-zinc-300"}`}
-						>
-							‹
-						</button>
-						<span className="text-[10px] text-zinc-500 font-medium tabular-nums min-w-[80px] text-center">
-							{start + 1}–{end} of {candidates.length}
-						</span>
-						<button
-							onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
-							disabled={page >= totalPages - 1}
-							className={`w-6 h-6 rounded flex items-center justify-center text-xs font-bold transition-all ${page >= totalPages - 1 ? "bg-zinc-800 text-zinc-700 cursor-default" : "bg-zinc-700 hover:bg-zinc-600 text-zinc-300"}`}
-						>
-							›
-						</button>
-					</div>
-				)}
-				<div className="grid grid-cols-5 gap-2">
-					{visible.map((candidate, i) => {
-						const globalIndex = start + i;
-						const isSelected = globalIndex === selectedIndex;
+			<div className="mt-1.5 pt-1.5 border-t border-zinc-800">
+				<div
+					ref={scrollRef}
+					className="flex gap-1.5 overflow-x-auto scrollbar-thin scrollbar-thumb-zinc-600 scrollbar-track-transparent pb-1"
+					style={{ scrollSnapType: "x mandatory" }}
+				>
+					{candidates.map((candidate, i) => {
+						const isSelected = i === selectedIndex;
 						const isClip = candidate.type === "clip";
 						return (
 							<div
-								key={globalIndex}
-								onClick={() => onSelect(globalIndex)}
-								className={`relative rounded-lg overflow-hidden border-2 cursor-pointer transition-all ${isSelected ? "border-amber-500 shadow-md shadow-amber-500/20" : "border-zinc-700 hover:border-zinc-500"}`}
-								style={{ aspectRatio: "16/9" }}
+								key={i}
+								ref={isSelected ? selectedRef : undefined}
+								onClick={() => onSelect(i)}
+								className={`relative rounded overflow-hidden border-2 cursor-pointer transition-all shrink-0 ${isSelected ? "border-amber-500 shadow-md shadow-amber-500/20" : "border-zinc-700 hover:border-zinc-500"}`}
+								style={{ aspectRatio: "16/9", width: "calc(20% - 6px)", scrollSnapAlign: "start" }}
 							>
 								{isClip && candidate.previewUrl ? (
 									<video
-										ref={(el) => { if (el) videoRefs.current[globalIndex] = el; }}
+										ref={(el) => { if (el) videoRefs.current[i] = el; }}
 										src={candidate.previewUrl}
 										poster={candidate.thumbnailUrl || undefined}
 										preload="metadata"
 										muted
 										loop
 										playsInline
-										autoPlay
 										className="w-full h-full object-cover"
 									/>
 								) : candidate.thumbnailUrl ? (
@@ -112,26 +86,26 @@ export default function CandidatePicker({ candidates, selectedIndex, onSelect, o
 									</div>
 								)}
 								<div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
-								<div className="absolute top-1 left-1 flex items-center gap-1">
-									<span className={`text-[6px] font-bold px-1 py-0.5 rounded ${candidate.source === "pexels" ? "bg-green-600/80 text-white" : "bg-blue-600/80 text-white"}`}>
+								<div className="absolute top-0.5 left-0.5">
+									<span className={`text-[5px] font-bold px-0.5 py-px rounded ${candidate.source === "pexels" ? "bg-green-600/80 text-white" : "bg-blue-600/80 text-white"}`}>
 										{candidate.source}
 									</span>
 								</div>
 								<button
-									onClick={(e) => { e.stopPropagation(); setFullscreenIndex(globalIndex); }}
-									className="absolute top-1 right-1 w-4 h-4 rounded bg-black/50 hover:bg-black/70 flex items-center justify-center transition-colors"
+									onClick={(e) => { e.stopPropagation(); setFullscreenIndex(i); }}
+									className="absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded bg-black/50 hover:bg-black/70 flex items-center justify-center transition-colors"
 								>
-									<span className="text-[8px] text-white">⛶</span>
+									<span className="text-[7px] text-white">⛶</span>
 								</button>
-								<div className="absolute bottom-1 left-1 right-1 flex items-center justify-between">
-									<span className="text-[6px] text-zinc-300 font-medium">{candidate.width}x{candidate.height}</span>
+								<div className="absolute bottom-0.5 left-0.5 right-0.5 flex items-center justify-between">
+									<span className="text-[5px] text-zinc-300 font-medium">{candidate.width}x{candidate.height}</span>
 									{isClip && candidate.duration > 0 && (
-										<span className="text-[6px] text-zinc-300 font-medium">{candidate.duration.toFixed(0)}s</span>
+										<span className="text-[5px] text-zinc-300 font-medium">{candidate.duration.toFixed(0)}s</span>
 									)}
 								</div>
 								{isSelected && (
-									<div className="absolute top-1 right-7 w-3 h-3 rounded-full bg-amber-500 flex items-center justify-center">
-										<span className="text-[7px] text-black font-bold">✓</span>
+									<div className="absolute top-0.5 right-5 w-2.5 h-2.5 rounded-full bg-amber-500 flex items-center justify-center">
+										<span className="text-[6px] text-black font-bold">✓</span>
 									</div>
 								)}
 							</div>

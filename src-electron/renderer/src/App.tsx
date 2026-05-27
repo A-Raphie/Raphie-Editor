@@ -154,15 +154,24 @@ export default function App() {
 			if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
 			const beats = scenePlan.beats;
 			if (e.key === "Escape") { setSelectedBeatId(null); return; }
-			if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+			if (e.key !== "ArrowLeft" && e.key !== "ArrowRight" && e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
 			e.preventDefault();
 			const idx = beats.findIndex((b: any) => b.id === selectedBeatId);
 			if (e.key === "ArrowRight") {
 				if (idx < 0 || idx >= beats.length - 1) setSelectedBeatId(beats[0].id);
 				else setSelectedBeatId(beats[idx + 1].id);
-			} else {
+			} else if (e.key === "ArrowLeft") {
 				if (idx <= 0) setSelectedBeatId(beats[beats.length - 1].id);
 				else setSelectedBeatId(beats[idx - 1].id);
+			} else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+				const grid = document.querySelector("[data-beat-grid]");
+				if (!grid) return;
+				const gridWidth = grid.clientWidth;
+				const cols = Math.floor((gridWidth + 12) / 140) || 1;
+				const newIdx = e.key === "ArrowDown"
+					? (idx < 0 ? 0 : Math.min(idx + cols, beats.length - 1))
+					: (idx < 0 ? 0 : Math.max(idx - cols, 0));
+				setSelectedBeatId(beats[newIdx].id);
 			}
 		};
 		window.addEventListener("keydown", handler);

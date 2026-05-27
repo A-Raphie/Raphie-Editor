@@ -114,8 +114,8 @@ export default function BeatTimeline({ beats, selectedBeatId, onSelectBeat, asse
 				</div>
 			</div>
 			<div
-				className="flex flex-wrap gap-3 scrollbar-thin scrollbar-thumb-zinc-700 scrollbar-track-transparent"
-				style={{ maxHeight: "calc(100vh - 340px)", overflowY: "auto" }}
+				className="flex flex-wrap gap-3"
+				data-beat-grid
 			>
 				{displayedBeats.map((beat, i) => {
 					const origIdx = beats.indexOf(beat);

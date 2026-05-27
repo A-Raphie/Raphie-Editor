@@ -835,13 +835,30 @@ export function registerIpcHandlers(win: BrowserWindow): void {
         try {
           const { parseSrt } = await import("../../src/utils/srtParser");
           const segments = parseSrt(fs.readFileSync(srtPath, "utf-8"));
+          const byBeat: Record<string, string[]> = {};
+
+          for (const segment of segments) {
+            let bestBeatId: string | null = null;
+            let bestOverlap = 0;
+
+            for (const beat of beats) {
+              const beatStart = beat.startTime;
+              const beatEnd = beat.startTime + beat.duration;
+              const overlap = Math.min(segment.endTime, beatEnd) - Math.max(segment.startTime, beatStart);
+              if (overlap > bestOverlap) {
+                bestOverlap = overlap;
+                bestBeatId = beat.id;
+              }
+            }
+
+            if (bestBeatId) {
+              if (!byBeat[bestBeatId]) byBeat[bestBeatId] = [];
+              byBeat[bestBeatId].push(segment.text);
+            }
+          }
+
           for (const beat of beats) {
-            const beatStart = beat.startTime;
-            const beatEnd = beat.startTime + beat.duration;
-            const overlapping = segments.filter(
-              (s: any) => s.endTime > beatStart && s.startTime < beatEnd
-            );
-            result[beat.id] = overlapping.map((s: any) => s.text).join(" ");
+            result[beat.id] = (byBeat[beat.id] ?? []).join(" ");
           }
         } catch {}
       } else if (scriptPath && fs.existsSync(scriptPath)) {
@@ -852,16 +869,19 @@ export function registerIpcHandlers(win: BrowserWindow): void {
             .filter((w: string) => w.length > 0);
           if (words.length === 0) return result;
           const totalWords = words.length;
-          const totalDuration = beats.reduce((sum: number, b: any) => sum + b.duration, 0);
+          const sortedBeats = [...beats].sort((a: any, b: any) => a.startTime - b.startTime);
+          const totalDuration = Math.max(...sortedBeats.map((b: any) => b.startTime + b.duration));
           if (totalDuration <= 0) return result;
-          const rate = totalWords / totalDuration;
-          for (const beat of beats) {
-            const startWord = Math.floor(beat.startTime * rate);
-            const endWord = Math.min(
-              Math.ceil((beat.startTime + beat.duration) * rate),
-              totalWords
-            );
+          let previousEndWord = 0;
+          for (let i = 0; i < sortedBeats.length; i++) {
+            const beat = sortedBeats[i];
+            const targetEnd = i === sortedBeats.length - 1
+              ? totalWords
+              : Math.round(((beat.startTime + beat.duration) / totalDuration) * totalWords);
+            const startWord = previousEndWord;
+            const endWord = Math.min(Math.max(targetEnd, startWord), totalWords);
             result[beat.id] = words.slice(startWord, endWord).join(" ");
+            previousEndWord = endWord;
           }
         } catch {}
       }

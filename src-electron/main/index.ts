@@ -81,9 +81,12 @@ app.whenReady().then(() => {
   } catch {}
 
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
+    if (mainWindow === null) {
       createWindow();
       registerIpcHandlers(mainWindow!);
+    } else {
+      mainWindow.show();
+      mainWindow.focus();
     }
   });
 });
