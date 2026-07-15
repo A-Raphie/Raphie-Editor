@@ -17,13 +17,17 @@ export default function Settings({ settings, onSave, onClose }: SettingsProps) {
 	const [clipInput, setClipInput] = useState(String(settings.clipPercent ?? 70));
 	const [imageInput, setImageInput] = useState(String(settings.imagePercent ?? 30));
 	const [apiKeysText, setApiKeysText] = useState((settings.openrouterApiKeys ?? []).join("\n"));
+	const [pexelsKeysText, setPexelsKeysText] = useState((settings.pexelsApiKeys ?? []).join("\n"));
+	const [pixabayKeysText, setPixabayKeysText] = useState((settings.pixabayApiKeys ?? []).join("\n"));
 
 	const handleSubmit = () => {
 		const cp = parseInt(clipInput) || 70;
 		const ip = parseInt(imageInput) || 30;
 		if (cp + ip !== 100) return;
 		const keys = apiKeysText.split(/[\n,]/).map((k: string) => k.trim()).filter((k: string) => k.length > 0);
-		onSave({ ...form, clipPercent: cp, imagePercent: ip, openrouterApiKeys: keys });
+		const pexelsKeys = pexelsKeysText.split(/[\n,]/).map((k: string) => k.trim()).filter((k: string) => k.length > 0);
+		const pixabayKeys = pixabayKeysText.split(/[\n,]/).map((k: string) => k.trim()).filter((k: string) => k.length > 0);
+		onSave({ ...form, clipPercent: cp, imagePercent: ip, openrouterApiKeys: keys, pexelsApiKeys: pexelsKeys, pixabayApiKeys: pixabayKeys });
 	};
 
 	const percentValid = (parseInt(clipInput) || 70) + (parseInt(imageInput) || 30) === 100;
@@ -59,12 +63,12 @@ export default function Settings({ settings, onSave, onClose }: SettingsProps) {
 								</div>
 								<div className="grid grid-cols-2 gap-4">
 									<div>
-										<label className={labelCls}>Pexels API Key</label>
-										<input type="password" value={form.pexelsApiKey ?? ""} onChange={(e) => setForm({ ...form, pexelsApiKey: e.target.value })} className={inputCls} placeholder="pexels.com/api" />
+										<label className={labelCls}>Pexels API Keys (one per line)</label>
+										<textarea value={pexelsKeysText} onChange={(e) => setPexelsKeysText(e.target.value)} className={`${inputCls} h-20 resize-none font-mono`} placeholder="key1&#10;key2" />
 									</div>
 									<div>
-										<label className={labelCls}>Pixabay API Key</label>
-										<input type="password" value={form.pixabayApiKey ?? ""} onChange={(e) => setForm({ ...form, pixabayApiKey: e.target.value })} className={inputCls} placeholder="pixabay.com/api/docs" />
+										<label className={labelCls}>Pixabay API Keys (one per line)</label>
+										<textarea value={pixabayKeysText} onChange={(e) => setPixabayKeysText(e.target.value)} className={`${inputCls} h-20 resize-none font-mono`} placeholder="key1&#10;key2" />
 									</div>
 								</div>
 							</>
@@ -102,7 +106,7 @@ export default function Settings({ settings, onSave, onClose }: SettingsProps) {
 											<input type="number" min={1} max={30} value={form.previewConcurrency ?? 10} onChange={(e) => setForm({ ...form, previewConcurrency: Math.min(30, Math.max(1, parseInt(e.target.value) || 10)) })} className={inputCls} />
 										</div>
 										<div>
-											<label className="block text-[10px] text-zinc-500 mb-1">Frame</label>
+											<label className="block text-[10px] text-zinc-500 mb-1">Processes</label>
 											<input type="number" min={1} max={12} value={form.renderConcurrency ?? 3} onChange={(e) => setForm({ ...form, renderConcurrency: Math.min(12, Math.max(1, parseInt(e.target.value) || 3)) })} className={inputCls} />
 										</div>
 										<div>
@@ -123,15 +127,6 @@ export default function Settings({ settings, onSave, onClose }: SettingsProps) {
 											<option value="ffmpeg">FFmpeg (Fast)</option>
 										</select>
 									</div>
-									<div>
-										<label className={labelCls}>Video Codec</label>
-										<select value={form.videoCodec ?? "h265"} onChange={(e) => setForm({ ...form, videoCodec: e.target.value })} className={inputCls}>
-											<option value="h265">H.265 (HEVC, smaller)</option>
-											<option value="h264">H.264 (more compatible)</option>
-										</select>
-									</div>
-								</div>
-								<div className="grid grid-cols-2 gap-4">
 									<div>
 										<label className={labelCls}>Segment Length</label>
 										<select value={form.segmentLength ?? 900} onChange={(e) => setForm({ ...form, segmentLength: parseInt(e.target.value) })} className={inputCls}>
@@ -235,9 +230,12 @@ export default function Settings({ settings, onSave, onClose }: SettingsProps) {
 									<div className="space-y-4">
 										<div className="grid grid-cols-2 gap-4">
 											<div>
-												<label className={labelCls}>Parallel Segments</label>
-												<p className="text-[10px] text-zinc-600 mb-1">1-3. Higher values render faster but use more memory. Recommended: 1</p>
-												<input type="number" min={1} max={3} value={form.parallelSegments ?? 1} onChange={(e) => setForm({ ...form, parallelSegments: Math.min(3, Math.max(1, parseInt(e.target.value) || 1)) })} className={inputCls} />
+												<label className={labelCls}>Max Tokens</label>
+												<p className="text-[10px] text-zinc-600 mb-1">LLM output limit. Use 8192 for larger chunk sizes to avoid truncation.</p>
+												<select value={form.maxTokens ?? 4096} onChange={(e) => setForm({ ...form, maxTokens: parseInt(e.target.value) || 4096 })} className={inputCls}>
+													<option value={4096}>4096</option>
+													<option value={8192}>8192</option>
+												</select>
 											</div>
 											<div>
 												<label className={labelCls}>SRT Chunk Size</label>
@@ -291,6 +289,11 @@ export default function Settings({ settings, onSave, onClose }: SettingsProps) {
 								<div className="pt-1">
 									<h4 className="text-xs font-semibold text-amber-400 uppercase tracking-wider mb-3">Scene Planner</h4>
 									<div className="space-y-4">
+										<label className="flex items-center gap-2 text-xs text-zinc-300 cursor-pointer select-none">
+											<input type="checkbox" checked={!!form.fastListiclePlan} onChange={(e) => setForm({ ...form, fastListiclePlan: e.target.checked })} className="accent-amber-500" />
+											Fast listicle planning (skip LLM, build beats instantly)
+											<span className="text-[10px] text-zinc-600">— only affects listicle videos. Uncheck if beat quality drops.</span>
+										</label>
 										<div>
 											<label className={labelCls}>Content Rules</label>
 											<p className="text-[10px] text-zinc-600 mb-1">What kind of content this documentary covers. Tells the AI what search queries to generate.</p>
@@ -340,10 +343,25 @@ export default function Settings({ settings, onSave, onClose }: SettingsProps) {
 											<div>
 												<label className={labelCls}>Generic Fallbacks</label>
 												<p className="text-[10px] text-zinc-600 mb-1">Used when a forbidden query has no neighbor to borrow from (comma-separated)</p>
-												<textarea value={form.genericFallbacks ?? ""} onChange={(e) => setForm({ ...form, genericFallbacks: e.target.value })} className={`${inputCls} h-16 resize-y`} placeholder="nature, garden, landscape, outdoor" />
-											</div>
+											<textarea value={form.genericFallbacks ?? ""} onChange={(e) => setForm({ ...form, genericFallbacks: e.target.value })} className={`${inputCls} h-16 resize-y`} placeholder="nature, garden, landscape, outdoor" />
 										</div>
 									</div>
+										<div>
+											<label className={labelCls}>Stock Category Filter</label>
+											<p className="text-[10px] text-zinc-600 mb-1">Restrict Pexels/Pixabay results to a category (None = topic-agnostic, let the query decide)</p>
+											<select value={form.stockCategory ?? ""} onChange={(e) => setForm({ ...form, stockCategory: e.target.value || undefined })} className={inputCls}>
+												<option value="">None (topic-agnostic)</option>
+												<option value="food">Food</option>
+												<option value="nature">Nature</option>
+												<option value="backgrounds">Backgrounds</option>
+												<option value="animals">Animals</option>
+												<option value="travel">Travel</option>
+												<option value="people">People</option>
+												<option value="sports">Sports</option>
+												<option value="science">Science</option>
+											</select>
+										</div>
+								</div>
 								</div>
 							</>
 						)}

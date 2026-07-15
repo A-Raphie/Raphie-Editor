@@ -29,6 +29,9 @@ if (app.isPackaged) {
 }
 
 let mainWindow: BrowserWindow | null = null;
+let isQuitting = false;
+
+app.on("before-quit", () => { isQuitting = true; });
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -57,6 +60,15 @@ function createWindow(): void {
   } else {
     mainWindow.loadFile(path.join(__dirname, "../renderer/index.html"));
   }
+
+  mainWindow.on("close", (e) => {
+    if (!isQuitting) {
+      e.preventDefault();
+      mainWindow?.hide();
+    } else {
+      mainWindow = null;
+    }
+  });
 
   mainWindow.on("closed", () => {
     mainWindow = null;

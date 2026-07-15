@@ -79,11 +79,15 @@
 ```bash
 npm run dev            # Electron dev mode
 npm run build:dmg      # Build macOS DMG (produces dist/mac-arm64/)
-# Deploy:
+# Quick update (preferred):
+bash update-app.sh     # builds + packs asar with node_modules + deploys
+# Deploy manually:
 killall "Raphie's Editor" 2>/dev/null
 rm -rf "/Applications/Raphie's Editor.app"
 cp -R dist/mac-arm64/Raphie\'s\ Editor.app /Applications/
 ```
+- **NEVER use `npx asar pack` directly** — it misses `node_modules` which `externalizeDepsPlugin()` requires
+- **Always use `update-app.sh`** — creates staging dir with `node_modules + out + src`, packs correctly
 
 ### Models
 - Scene planner models (6 in dropdown): Claude Sonnet 4 → Haiku 4.5 → DeepSeek V4 Flash → Qwen3 235B → Gemma 3 4B → Owl Alpha (most expensive to free)

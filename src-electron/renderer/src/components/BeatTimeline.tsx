@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import type { CandidatePreview } from "../../../shared/types";
+import { beatDerailment, sectionLabel } from "../../../shared/sectionUtils";
 
 interface Beat {
 	id: string;
@@ -36,22 +37,68 @@ interface BeatTimelineProps {
 	selectedCandidateIndex: Record<string, number>;
 	filterMode: string | null;
 	onFilterChange: (mode: string | null) => void;
+	prerenderProgress?: { total: number; done: number } | null;
+	sectionPlan?: any;
+	imageHashes?: Record<string, string>;
+	onRepreviewSection?: (sectionId: string) => void;
+	repreviewingSectionId?: string | null;
+	onEditSection?: (sectionId: string, newLabel: string) => void;
 }
 
-export default function BeatTimeline({ beats, selectedBeatId, onSelectBeat, assets, thumbnails, beatStatuses, assetValidation, subscribeHintBeatIds, beatCandidates, selectedCandidateIndex, filterMode, onFilterChange }: BeatTimelineProps) {
+export default function BeatTimeline({ beats, selectedBeatId, onSelectBeat, assets, thumbnails, beatStatuses, assetValidation, subscribeHintBeatIds, beatCandidates, selectedCandidateIndex, filterMode, onFilterChange, prerenderProgress, sectionPlan, imageHashes, onRepreviewSection, repreviewingSectionId, onEditSection }: BeatTimelineProps) {
 	const [hoveredId, setHoveredId] = useState<string | null>(null);
 	const [subOnly, setSubOnly] = useState(false);
+	const [editingSectionId, setEditingSectionId] = useState<string | null>(null);
+	const [editValue, setEditValue] = useState("");
 
-	const subBeats = beats.filter((b) => b.overlay?.type === "subscribe_cta" || subscribeHintBeatIds?.has(b.id));
+	const subBeats = beats.filter((b) => b.overlay?.type === "subscribe_cta");
 	const baseBeats = subOnly ? subBeats : beats;
 
 	const assetableBeats = beats.filter((b) => b.type === "clip" || b.type === "image");
 	const missingDownloadCount = assetableBeats.filter((b) => !assets?.[b.id]).length;
 	const missingThumbnailCount = assetableBeats.filter((b) => !assets?.[b.id] && !beatCandidates?.[b.id]?.length).length;
+	const derailedCount = sectionPlan ? assetableBeats.filter((b) => beatDerailment(b, sectionPlan).derailed).length : 0;
+
+	// Beats whose selected-candidate URL is also used by another beat, OR whose
+	// perceptual hash matches another beat (visually-identical, different URL).
+	const duplicateBeats = (() => {
+		const dupSet = new Set<string>();
+		// Exact-URL collisions
+		const urlToBeats = new Map<string, string[]>();
+		for (const b of assetableBeats) {
+			const cands = beatCandidates?.[b.id];
+			const idx = selectedCandidateIndex?.[b.id] ?? 0;
+			const url = cands?.[idx]?.url;
+			if (!url) continue;
+			const group = urlToBeats.get(url) ?? [];
+			group.push(b.id);
+			urlToBeats.set(url, group);
+		}
+		for (const group of urlToBeats.values()) {
+			if (group.length > 1) for (const id of group) dupSet.add(id);
+		}
+		// Perceptual-hash collisions (visually identical, different URL)
+		if (imageHashes) {
+			const hashToBeats = new Map<string, string[]>();
+			for (const [id, hash] of Object.entries(imageHashes)) {
+				if (!hash) continue;
+				const group = hashToBeats.get(hash) ?? [];
+				group.push(id);
+				hashToBeats.set(hash, group);
+			}
+			for (const group of hashToBeats.values()) {
+				if (group.length > 1) for (const id of group) dupSet.add(id);
+			}
+		}
+		return dupSet;
+	})();
+	const duplicateCount = duplicateBeats.size;
 
 	const displayedBeats = baseBeats.filter((b) => {
 		if (filterMode === "missingDownload") return !assets?.[b.id];
 		if (filterMode === "missingThumbnail") return !assets?.[b.id] && !beatCandidates?.[b.id]?.length;
+		if (filterMode === "derailed") return !!sectionPlan && beatDerailment(b, sectionPlan).derailed;
+		if (filterMode === "duplicates") return duplicateBeats.has(b.id);
 		return true;
 	});
 
@@ -103,14 +150,35 @@ export default function BeatTimeline({ beats, selectedBeatId, onSelectBeat, asse
 					>
 						Missing Thumbnail <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold ${filterMode === "missingThumbnail" ? "bg-orange-500/30" : "bg-orange-500/20 text-orange-400"}`}>{missingThumbnailCount}</span>
 					</button>
-					{filterMode && (
+					{sectionPlan && derailedCount > 0 && (
 						<button
-							onClick={() => onFilterChange(null)}
-							className="text-xs px-2 py-1 rounded-md border font-medium bg-zinc-700 text-zinc-300 border-zinc-600 hover:bg-zinc-600 transition-all"
+							onClick={() => onFilterChange(filterMode === "derailed" ? null : "derailed")}
+							className={`text-xs px-2.5 py-1 rounded-md border font-medium transition-all ${filterMode === "derailed" ? "bg-rose-950/80 text-rose-300 border-rose-500/50" : "bg-zinc-800 text-zinc-400 border-zinc-700 hover:border-zinc-600 hover:text-zinc-300"}`}
 						>
-							✕ Clear
+							Derailed <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold ${filterMode === "derailed" ? "bg-rose-500/30" : "bg-rose-500/20 text-rose-400"}`}>{derailedCount}</span>
 						</button>
 					)}
+					{duplicateCount > 0 && (
+						<button
+							onClick={() => onFilterChange(filterMode === "duplicates" ? null : "duplicates")}
+							className={`text-xs px-2.5 py-1 rounded-md border font-medium transition-all ${filterMode === "duplicates" ? "bg-orange-950/80 text-orange-300 border-orange-500/50" : "bg-zinc-800 text-zinc-400 border-zinc-700 hover:border-zinc-600 hover:text-zinc-300"}`}
+						>
+							Duplicates <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold ${filterMode === "duplicates" ? "bg-orange-500/30" : "bg-orange-500/20 text-orange-400"}`}>{duplicateCount}</span>
+						</button>
+					)}
+				{filterMode && (
+					<button
+						onClick={() => onFilterChange(null)}
+						className="text-xs px-2 py-1 rounded-md border font-medium bg-zinc-700 text-zinc-300 border-zinc-600 hover:bg-zinc-600 transition-all"
+					>
+						✕ Clear
+					</button>
+				)}
+				{prerenderProgress && prerenderProgress.total > 0 && (
+					<span className="text-xs px-2.5 py-1 rounded-md border font-medium bg-cyan-950/80 text-cyan-300 border-cyan-500/50">
+						Converting {prerenderProgress.done}/{prerenderProgress.total}
+					</span>
+				)}
 				</div>
 			</div>
 			<div
@@ -133,8 +201,85 @@ export default function BeatTimeline({ beats, selectedBeatId, onSelectBeat, asse
 					const borderColor = getBorderColor(beat);
 					const isInvalid = validation && !validation.valid;
 					const isValid = hasAsset && validation?.valid;
+					const derail = sectionPlan ? beatDerailment(beat, sectionPlan) : null;
+					const sectionTag = derail?.section ? `\nSection: ${sectionLabel(derail.section)}${derail.derailed ? " — ⚠ derailed" : " — ✓ matches"}` : "";
+
+					// Section boundary: first beat of a new section vs the previous beat.
+					const prevBeat = i > 0 ? displayedBeats[i - 1] : null;
+					const prevSection = prevBeat && sectionPlan ? (beatDerailment(prevBeat, sectionPlan)?.section ?? null) : null;
+					const isSectionStart = i === 0 || (derail?.section && prevSection && derail.section.id !== prevSection.id) || (derail?.section && !prevSection);
 
 					return (
+						<React.Fragment key={beat.id}>
+						{sectionPlan && isSectionStart && derail?.section && (
+							<div className="w-full flex items-center gap-1 py-1 px-0.5">
+								{editingSectionId === derail.section.id ? (
+									<input
+										autoFocus
+										type="text"
+										value={editValue}
+										onChange={(e) => setEditValue(e.target.value)}
+										onBlur={() => {
+											if (editValue.trim() && editValue.trim() !== derail.section.label) {
+												onEditSection?.(derail.section.id, editValue.trim());
+											}
+											setEditingSectionId(null);
+										}}
+										onKeyDown={(e) => {
+											if (e.key === "Enter") {
+												if (editValue.trim() && editValue.trim() !== derail.section.label) {
+													onEditSection?.(derail.section.id, editValue.trim());
+												}
+												setEditingSectionId(null);
+											}
+											if (e.key === "Escape") setEditingSectionId(null);
+										}}
+										className="text-[9px] font-semibold bg-transparent border-b border-dashed border-zinc-500 focus:border-amber-500 text-zinc-300 outline-none w-32"
+									/>
+								) : (
+									<span
+										onClick={() => { setEditingSectionId(derail.section.id); setEditValue(derail.section.label); }}
+										className="text-[9px] font-semibold uppercase tracking-wide text-zinc-600 hover:text-amber-400 cursor-pointer"
+										title="Click to edit section label"
+									>
+										{sectionLabel(derail.section)}
+									</span>
+								)}
+								{onRepreviewSection && (
+									<button
+										onClick={() => onRepreviewSection(derail.section.id)}
+										disabled={repreviewingSectionId === derail.section.id}
+										title="Re-search this section"
+										className={`text-zinc-600 hover:text-amber-400 text-xs ${repreviewingSectionId === derail.section.id ? "animate-spin cursor-wait" : ""}`}
+									>↻</button>
+								)}
+								{(() => {
+									const sectionBeatIds = displayedBeats
+										.filter((b: any) => beatDerailment(b, sectionPlan)?.section?.id === derail.section?.id)
+										.map((b: any) => b.id);
+									const hasCandidates = sectionBeatIds.some((id: string) => beatCandidates[id]?.length > 0);
+									if (!hasCandidates) return null;
+									return (
+										<button
+											onClick={() => {
+												const lines: string[] = [`=== ${sectionLabel(derail.section)} (${sectionBeatIds.length} beats) ===`];
+												for (const bid of sectionBeatIds) {
+													const cands = beatCandidates[bid];
+													const idx = selectedCandidateIndex[bid] ?? 0;
+													const sel = cands?.[idx];
+													if (!sel) { lines.push(`${bid}: no selection`); continue; }
+													lines.push(`${bid}: ${sel.source} ${(sel as any).tags ?? ""} ${sel.url}`);
+												}
+												navigator.clipboard.writeText(lines.join("\n"));
+											}}
+											title="Copy selected candidate URL for each beat in this section"
+											className="text-zinc-600 hover:text-amber-400 text-xs"
+										>📋</button>
+									);
+								})()}
+								<div className="flex-1 h-px bg-zinc-800" />
+							</div>
+						)}
 						<button
 							key={beat.id}
 							onClick={() => onSelectBeat(isSelected ? null : beat.id)}
@@ -142,7 +287,7 @@ export default function BeatTimeline({ beats, selectedBeatId, onSelectBeat, asse
 							onMouseLeave={() => setHoveredId(null)}
 							className={`relative rounded-lg border-2 overflow-hidden transition-all duration-150 cursor-pointer ${isSelected ? "ring-2 ring-white/80 ring-offset-2 ring-offset-zinc-900" : ""} ${borderColor} ${isHovered ? "transform scale-[1.02] shadow-lg" : "shadow-sm"}`}
 							style={{ width: 128, height: 80 }}
-							title={`#${origIdx + 1} ${beat.type} — ${beat.duration}s\n${beat.searchQuery || ""}`}
+							title={`#${origIdx + 1} ${beat.type} — ${beat.duration}s\n${beat.searchQuery || ""}${sectionTag}`}
 						>
 							{previewThumb ? (
 								<img key={previewThumb} src={previewThumb} className="w-full h-full object-cover" alt="" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
@@ -160,11 +305,37 @@ export default function BeatTimeline({ beats, selectedBeatId, onSelectBeat, asse
 								{isFailed && !isActive && <div className="w-1.5 h-1.5 rounded-full bg-red-500" />}
 							</div>
 
-							{(beat.overlay?.type === "subscribe_cta" || subscribeHintBeatIds?.has(beat.id)) && (
+							{beat.overlay?.type === "subscribe_cta" && (
 								<div className="absolute bottom-0.5 left-1">
-									<span className={`text-[8px] font-bold px-1.5 py-0.5 rounded ${beat.overlay?.type === "subscribe_cta" ? "text-red-300 bg-red-950/90" : "text-amber-300 bg-amber-950/90"}`}>
-										🔔 {beat.overlay?.type === "subscribe_cta" ? "SUB" : ""}
+									<span className="text-[8px] font-bold px-1.5 py-0.5 rounded text-red-300 bg-red-950/90">
+										🔔 SUB
 									</span>
+								</div>
+							)}
+							{beat.overlay?.type === "number_callout" && (
+								<div className="absolute bottom-0.5 left-1">
+									<span className="text-[8px] font-bold px-1.5 py-0.5 rounded text-blue-300 bg-blue-950/90" title={`Teaser callout #${beat.overlay.number}`}>
+										⚡#{beat.overlay.number}
+									</span>
+								</div>
+							)}
+							{beat.overlay?.type === "item_banner" && (
+								<div className="absolute bottom-0.5 left-1">
+									<span className="text-[8px] font-bold px-1.5 py-0.5 rounded text-emerald-300 bg-emerald-950/90" title={`Banner: ${beat.overlay.label ?? ""}`}>
+										📊#{beat.overlay.number}
+									</span>
+								</div>
+							)}
+
+							{derail?.constrained && (
+								<div className="absolute bottom-1 left-1/2 -translate-x-1/2" title={`Section: ${derail.section ? sectionLabel(derail.section) : ""}${derail.derailed ? " (derailed)" : ""}`}>
+									<div className={`w-2 h-2 rounded-full border ${derail.derailed ? "bg-rose-500 border-white/80 shadow-[0_0_0_2px_rgba(244,63,94,0.4)]" : "bg-emerald-500 border-emerald-200/40"}`} />
+								</div>
+							)}
+
+							{duplicateBeats.has(beat.id) && !isHovered && (
+								<div className="absolute top-0.5 left-0.5 z-10" title="Selected candidate is also used by another beat — duplicate">
+									<span className="text-[7px] font-bold px-1 py-px rounded bg-orange-600/90 text-white">DUP</span>
 								</div>
 							)}
 
@@ -228,8 +399,11 @@ export default function BeatTimeline({ beats, selectedBeatId, onSelectBeat, asse
 									<div className="absolute top-1 left-1.5 flex flex-col gap-0.5">
 										<span className="text-[9px] font-bold text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">{origIdx + 1}</span>
 										{isInvalid && !isFailed && (
-											<span className={`text-[7px] font-bold px-1 rounded ${validation?.reason === "corrupt" ? "bg-red-600 text-white" : validation?.reason === "quality_failed" ? "bg-amber-600 text-white" : "bg-red-600 text-white"}`}>
+											<span className={`group/validation text-[7px] font-bold px-1 rounded relative cursor-default ${validation?.reason === "corrupt" ? "bg-red-600 text-white" : validation?.reason === "quality_failed" ? "bg-amber-600 text-white" : "bg-red-600 text-white"}`}>
 												{validation?.reason === "corrupt" ? "CORRUPT" : validation?.reason === "quality_failed" ? "BAD QUAL" : "MISSING"}
+												<span className="absolute bottom-full mb-1 left-0 px-2 py-1 bg-zinc-800 border border-zinc-600 rounded text-[8px] text-zinc-300 whitespace-nowrap hidden group-hover/validation:block z-50">
+													{beat.id}: {validation?.reason === "missing" ? "File not found on disk" : validation?.reason === "corrupt" ? "File exists but failed ffprobe validation" : validation?.reason === "quality_failed" ? "Quality checker rejected this asset" : validation?.reason ?? "unknown"}
+												</span>
 											</span>
 										)}
 										{isValid && !isDone && <span className="text-[8px] font-bold text-emerald-300">✓</span>}
@@ -237,6 +411,7 @@ export default function BeatTimeline({ beats, selectedBeatId, onSelectBeat, asse
 								</>
 							)}
 						</button>
+						</React.Fragment>
 					);
 				})}
 			</div>

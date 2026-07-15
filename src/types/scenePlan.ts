@@ -32,12 +32,14 @@ export type TransitionType =
 
 export type BeatType = "image" | "clip" | "lower_third" | "subscribe_cta";
 
-export type OverlayType = "subscribe_cta";
+export type OverlayType = "subscribe_cta" | "number_callout" | "item_banner";
 
 export interface BeatOverlay {
   type: OverlayType;
   showAt: number;
   hideAt: number;
+  number?: number;
+  label?: string;
 }
 
 export interface Beat {
@@ -61,6 +63,29 @@ export interface Beat {
     title: string;
     subtitle: string;
   };
+
+  sectionId?: string;
+  sectionContext?: string;
+}
+
+export type SectionType = "hook" | "list" | "ending";
+
+export interface Section {
+  id: string;
+  type: SectionType;
+  label: string;
+  startTime: number;
+  endTime: number;
+  searchContext: string;
+  bannerText?: string;
+  number?: number;
+  inferred?: boolean;
+  sourceSnippet?: string;
+}
+
+export interface SectionPlan {
+  title: string;
+  sections: Section[];
 }
 
 export interface ScenePlan {
@@ -97,11 +122,13 @@ export interface PipelineState {
   scriptPath: string;
   voPath: string;
   musicPath: string;
+  srtPath?: string;
   renderSegments: RenderSegmentState | null;
+  qualityCheckResults?: Record<string, { accepted: boolean }>;
 }
 
 const VALID_BEAT_TYPES: string[] = ["clip", "image", "lower_third"];
-const VALID_OVERLAY_TYPES: string[] = ["subscribe_cta"];
+const VALID_OVERLAY_TYPES: string[] = ["subscribe_cta", "number_callout", "item_banner"];
 
 export function sanitizeScenePlan(plan: ScenePlan): ScenePlan {
   for (const beat of plan.beats) {
@@ -120,4 +147,37 @@ export function sanitizeScenePlan(plan: ScenePlan): ScenePlan {
     if (typeof beat.transitionDuration !== "number") (beat as any).transitionDuration = 0;
   }
   return plan;
+}
+
+export function findSectionAt(time: number, sections: Section[]): Section | null {
+  for (const s of sections) {
+    if (time >= s.startTime && time < s.endTime) return s;
+  }
+  if (sections.length > 0 && time >= sections[sections.length - 1].endTime) {
+    return sections[sections.length - 1];
+  }
+  return null;
+}
+
+export function isQueryDerailed(beat: Beat, section: Section | null): boolean {
+  if (!section?.searchContext || !beat.searchQuery) return false;
+  return !beat.searchQuery.toLowerCase().includes(section.searchContext.toLowerCase());
+}
+
+export interface BeatDerailment {
+  section: Section | null;
+  constrained: boolean;
+  derailed: boolean;
+}
+
+export function beatDerailment(beat: Beat, sectionPlan: SectionPlan | null | undefined): BeatDerailment {
+  const section = sectionPlan ? findSectionAt(beat.startTime, sectionPlan.sections) : null;
+  const constrained = !!(section && section.searchContext);
+  return { section, constrained, derailed: constrained && isQueryDerailed(beat, section) };
+}
+
+export function sectionLabel(section: Section): string {
+  if (section.type === "hook") return "Hook";
+  if (section.number) return `#${section.number} ${section.label}`;
+  return section.label;
 }

@@ -9,8 +9,8 @@ const api = {
   resumePipeline: (projectId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.RESUME_PIPELINE, projectId),
 
-  previewScenePlan: (scriptPath: string, voPath: string, projectId?: string, srtPath?: string) =>
-    ipcRenderer.invoke(IPC_CHANNELS.PREVIEW_SCENE_PLAN, scriptPath, voPath, projectId, srtPath),
+  previewScenePlan: (scriptPath: string, voPath: string, projectId?: string, srtPath?: string, sectionPlan?: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS.PREVIEW_SCENE_PLAN, scriptPath, voPath, projectId, srtPath, sectionPlan),
 
   cancelPipeline: () =>
     ipcRenderer.invoke(IPC_CHANNELS.CANCEL_PIPELINE),
@@ -42,11 +42,14 @@ const api = {
   reDownloadBeat: (beatId: string, searchQuery: string, beatType: string, projectId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.RE_DOWNLOAD_BEAT, beatId, searchQuery, beatType, projectId),
 
-  searchBeatCandidates: (beatId: string, searchQuery: string, beatType: string, projectId: string) =>
-    ipcRenderer.invoke(IPC_CHANNELS.SEARCH_BEAT_CANDIDATES, beatId, searchQuery, beatType, projectId),
+  searchBeatCandidates: (beatId: string, searchQuery: string, beatType: string, projectId: string, excludeUrls?: string[]) =>
+    ipcRenderer.invoke(IPC_CHANNELS.SEARCH_BEAT_CANDIDATES, beatId, searchQuery, beatType, projectId, excludeUrls),
 
-  downloadSelectedCandidate: (beatId: string, candidate: CandidatePreview, projectId: string) =>
-    ipcRenderer.invoke(IPC_CHANNELS.DOWNLOAD_SELECTED_CANDIDATE, beatId, candidate, projectId),
+  downloadSelectedCandidate: (beatId: string, candidate: CandidatePreview, projectId: string, beatMeta?: { duration: number; imageAnimation?: string; startTime?: number }) =>
+    ipcRenderer.invoke(IPC_CHANNELS.DOWNLOAD_SELECTED_CANDIDATE, beatId, candidate, projectId, beatMeta),
+
+  prerenderExistingImages: (projectId: string, force?: boolean) =>
+    ipcRenderer.invoke(IPC_CHANNELS.PRERENDER_EXISTING_IMAGES, projectId, force),
 
   getBeatTextSegments: (beats: any[], scriptPath?: string, srtPath?: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.GET_BEAT_TEXT_SEGMENTS, beats, scriptPath, srtPath),
@@ -63,6 +66,18 @@ const api = {
     const handler = (_: any, data: string) => callback(data);
     ipcRenderer.on(IPC_CHANNELS.PIPELINE_LOG, handler);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.PIPELINE_LOG, handler);
+  },
+
+  onPrerenderProgress: (callback: (data: { total: number; done: number }) => void) => {
+    const handler = (_: any, data: { total: number; done: number }) => callback(data);
+    ipcRenderer.on(IPC_CHANNELS.PRERENDER_PROGRESS, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.PRERENDER_PROGRESS, handler);
+  },
+
+  onRenderSizes: (callback: (data: { h264Bytes: number; finalBytes: number }) => void) => {
+    const handler = (_: any, data: { h264Bytes: number; finalBytes: number }) => callback(data);
+    ipcRenderer.on(IPC_CHANNELS.RENDER_SIZES, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.RENDER_SIZES, handler);
   },
 
   onComplete: (callback: (outputPath: string) => void) => {
@@ -104,8 +119,8 @@ const api = {
   updatePipelineStatus: (projectId: string, status: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.UPDATE_PIPELINE_STATUS, projectId, status),
 
-  renderVideo: (projectId: string, scriptPath: string, voPath: string, musicPath: string, mode: string, srtPath: string, previewResolution?: number) =>
-    ipcRenderer.invoke(IPC_CHANNELS.RENDER_VIDEO, projectId, scriptPath, voPath, musicPath, mode, srtPath, previewResolution),
+  renderVideo: (projectId: string, scriptPath: string, voPath: string, musicPath: string, mode: string, srtPath: string, previewResolution?: number, aspectRatio?: string, codec?: string, renderMode?: string, projectName?: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.RENDER_VIDEO, projectId, scriptPath, voPath, musicPath, mode, srtPath, previewResolution, aspectRatio, codec, renderMode, projectName),
 
   sourceAllAssets: (projectId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.SOURCE_ALL_ASSETS, projectId),
@@ -139,6 +154,19 @@ const api = {
 
   getPipelineState: (projectId: string, scriptPath: string, voPath: string, srtPath?: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.GET_PIPELINE_STATE, projectId, scriptPath, voPath, srtPath),
+
+  getRenderEstimate: (totalBeats: number, resolution: number, codec: string, renderMode?: string, durationSeconds?: number) =>
+    ipcRenderer.invoke(IPC_CHANNELS.GET_RENDER_ESTIMATE, totalBeats, resolution, codec, renderMode, durationSeconds),
+
+  generateSectionPlan: (srtPath: string, voPath: string, projectId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.GENERATE_SECTION_PLAN, srtPath, voPath, projectId),
+  getRateLimits: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.GET_RATE_LIMITS),
+
+  loadOverlayOverrides: (projectId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.OVERLAY_OVERRIDES_LOAD, projectId),
+  saveOverlayOverrides: (overrides: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS.OVERLAY_OVERRIDES_SAVE, overrides),
 };
 
 export type ElectronAPI = typeof api;

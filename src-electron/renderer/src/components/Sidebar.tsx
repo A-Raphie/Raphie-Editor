@@ -43,7 +43,7 @@ export default function Sidebar({ view, onNew, onProjects, onQueue, onSettings }
 					className={`w-full text-left px-3 py-2.5 rounded-lg text-sm flex items-center gap-2.5 transition-all ${view === "queue" ? "bg-zinc-800 text-zinc-100 shadow-sm" : "text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200"}`}
 				>
 					<span className="text-base w-5 text-center">📋</span>
-					<span className="font-medium">Queue</span>
+						<span className="font-medium">Queue</span>
 				</button>
 				<div className="pt-4 pb-1">
 					<div className="text-[10px] uppercase tracking-wider text-zinc-600 px-3">Settings</div>

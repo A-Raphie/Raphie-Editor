@@ -41,6 +41,10 @@ interface UsePipelineDeps {
 	pendingPlanProjectIdRef: React.MutableRefObject<string | null>;
 	autoSaveProjectRef: React.MutableRefObject<(status: string, extra?: any) => Promise<void>>;
 	selectedResolution: number;
+	selectedAspectRatio: string;
+	selectedCodec: string;
+	renderMode: string;
+	projectName: string;
 	batchCurrentIndex: number;
 	openSettings: () => void;
 	refreshProjects: () => Promise<void>;
@@ -66,18 +70,19 @@ interface UsePipelineDeps {
 	setBeatCandidates: (v: Record<string, any[]>) => void;
 	setSelectedCandidateIndex: (v: Record<string, number>) => void;
 	setBatchQueue: (updater: (q: any[]) => any[]) => void;
+	setRenderSizes: (v: { h264Bytes: number; finalBytes: number } | null) => void;
 }
 
 export function usePipeline(deps: UsePipelineDeps) {
 	const {
 		settings, scriptPath, srtPath, voPath, musicPath, scenePlan, currentProjectId,
 		currentProjectIdRef, activePipelineProjectIdRef, pendingPlanProjectIdRef,
-		autoSaveProjectRef, selectedResolution, batchCurrentIndex, openSettings, refreshProjects,
+		autoSaveProjectRef, selectedResolution, selectedAspectRatio, selectedCodec, renderMode, projectName, batchCurrentIndex, openSettings, refreshProjects,
 		setScenePlan, setView, setError, setProgress, setLogs, setOutputPath,
 		setRenderingError, setRenderStartTime, setRenderElapsed, setPreviousElapsed,
 		setSessionTimes, setShowSessionDetails, setRegenerating, setPipelineStateInfo,
 		setAssets, setThumbnails, setBeatStatuses, setAssetValidation, setDownloadingBeats,
-		setBeatCandidates, setSelectedCandidateIndex, setBatchQueue,
+		setBeatCandidates, setSelectedCandidateIndex, setBatchQueue, setRenderSizes,
 	} = deps;
 
 	const isRenderingRef = useRef(false);
@@ -91,12 +96,15 @@ export function usePipeline(deps: UsePipelineDeps) {
 
 	useEffect(() => {
 		const unsubProgress = window.api.onProgress((p: PipelineProgress) => {
-			const activePid = activePipelineProjectIdRef.current;
-			if (activePid !== currentProjectIdRef.current) return;
-			setProgress(p);
+			// Always update the batch queue item, regardless of which project is
+			// currently viewed (the active pipeline is the batch item, not the
+			// viewed project — so the guard below must not gate the queue update).
 			if (batchCurrentIndex >= 0) {
 				setBatchQueue((q) => q.map((it, idx) => idx === batchCurrentIndex ? { ...it, progress: p } : it));
 			}
+			const activePid = activePipelineProjectIdRef.current;
+			if (activePid !== currentProjectIdRef.current) return;
+			setProgress(p);
 		});
 		const unsubComplete = async (path: string) => {
 			const activePid = activePipelineProjectIdRef.current;
@@ -212,16 +220,16 @@ export function usePipeline(deps: UsePipelineDeps) {
 		return true;
 	}, [settings, scriptPath, srtPath, voPath, openSettings]);
 
-	const doPreview = useCallback(async () => {
+	const doPreview = useCallback(async (name?: string, sectionPlan?: any) => {
 		if (!validate(true)) return;
 		const pid = currentProjectId;
 		setView("planning");
 		setError(null);
 		setLogs([]);
 		pendingPlanProjectIdRef.current = pid;
-		await autoSaveProjectRef.current("planning");
+		await autoSaveProjectRef.current("planning", name ? { name } : undefined);
 		try {
-			const plan = await window.api.previewScenePlan(scriptPath ?? undefined, voPath!, pid ?? undefined, srtPath ?? undefined);
+			const plan = await window.api.previewScenePlan(scriptPath ?? undefined, voPath!, pid ?? undefined, srtPath ?? undefined, sectionPlan);
 			if (currentProjectIdRef.current !== pid) {
 				if (pid) { window.api.saveProject({ id: pid, scenePlan: plan, status: "editing" }).catch(() => {}); window.api.saveScenePlan(pid, plan).catch(() => {}); }
 				return;
@@ -240,7 +248,7 @@ export function usePipeline(deps: UsePipelineDeps) {
 		}
 	}, [scriptPath, voPath, validate, openSettings, currentProjectId]);
 
-	const handleRegenerate = useCallback(async () => {
+	const handleRegenerate = useCallback(async (sectionPlan?: any) => {
 		if (!validate(true)) return;
 		const pid = currentProjectId;
 		setRegenerating(true);
@@ -255,7 +263,7 @@ export function usePipeline(deps: UsePipelineDeps) {
 		setBeatCandidates({});
 		setSelectedCandidateIndex({});
 		try {
-			const plan = await window.api.previewScenePlan(scriptPath ?? undefined, voPath!, pid ?? undefined, srtPath ?? undefined);
+			const plan = await window.api.previewScenePlan(scriptPath ?? undefined, voPath!, pid ?? undefined, srtPath ?? undefined, sectionPlan);
 			if (currentProjectIdRef.current !== pid) {
 				if (pid) { window.api.saveProject({ id: pid, scenePlan: plan, status: "editing" }).catch(() => {}); window.api.saveScenePlan(pid, plan).catch(() => {}); try { await window.api.cleanAssets(pid); } catch {} }
 				return;
@@ -276,6 +284,7 @@ export function usePipeline(deps: UsePipelineDeps) {
 	const handleRenderVideo = useCallback(async (mode = "render") => {
 		if (isRenderingRef.current) return;
 		if (!scenePlan || !currentProjectId || (!scriptPath && !srtPath) || !voPath) return;
+		setRenderSizes(null);
 		const pid = currentProjectId;
 		isRenderingRef.current = true;
 		const stateInfo = await window.api.getPipelineState(pid, scriptPath ?? "", voPath, srtPath ?? undefined);
@@ -305,7 +314,7 @@ export function usePipeline(deps: UsePipelineDeps) {
 		renderStartTimeRef.current = Date.now();
 		setView("rendering");
 		try {
-			await window.api.renderVideo(pid, scriptPath ?? "", voPath, musicPath || undefined, mode, srtPath ?? undefined, selectedResolution);
+			await window.api.renderVideo(pid, scriptPath ?? "", voPath, musicPath || undefined, mode, srtPath ?? undefined, selectedResolution, selectedAspectRatio, selectedCodec, renderMode, projectName || undefined);
 		} catch (err: any) {
 			isRenderingRef.current = false;
 			if (currentProjectIdRef.current !== pid) return;
@@ -313,7 +322,7 @@ export function usePipeline(deps: UsePipelineDeps) {
 			setRenderElapsed(fmtElapsed(Date.now() - (renderStartTimeRef.current || Date.now())));
 			setError({ title: "Render Failed", message: err.message });
 		}
-	}, [scenePlan, currentProjectId, scriptPath, srtPath, voPath, musicPath, selectedResolution]);
+	}, [scenePlan, currentProjectId, scriptPath, srtPath, voPath, musicPath, selectedResolution, selectedAspectRatio, selectedCodec, renderMode, projectName]);
 
 	const handleStop = useCallback(async () => {
 		try { await window.api.cancelPipeline(); } catch {}
@@ -328,6 +337,8 @@ export function usePipeline(deps: UsePipelineDeps) {
 	}, []);
 
 	const handleBackToEditor = useCallback(() => {
+		try { window.api.cancelPipeline(); } catch {}
+		activePipelineProjectIdRef.current = null;
 		setRenderingError(null);
 		setProgress(null);
 		setPreviousElapsed("");

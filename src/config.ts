@@ -23,8 +23,8 @@ export interface Config {
   modelOption: ModelOption;
   scenePlannerModel: string;
   qualityCheckerModel: string;
-  pexelsApiKey: string;
-  pixabayApiKey: string;
+  pexelsApiKeys: string[];
+  pixabayApiKeys: string[];
   clipPercent: number;
   imagePercent: number;
   concurrency: number;
@@ -74,6 +74,12 @@ export interface Config {
   renderer: "remotion" | "ffmpeg";
   srtChunkSize: number;
   srtChunkDelayMs: number;
+  maxTokens: number;
+  aspectRatio: string;
+  renderMode: "bestSource" | "balanced" | "hybrid";
+  projectName?: string;
+  stockCategory?: string;
+  fastListiclePlan?: boolean;
 }
 
 export function createConfig(overrides: Partial<Config> = {}): Config {
@@ -89,8 +95,8 @@ export function createConfig(overrides: Partial<Config> = {}): Config {
     modelOption,
     scenePlannerModel: overrides.scenePlannerModel ?? models.scenePlanner,
     qualityCheckerModel: overrides.qualityCheckerModel ?? models.qualityChecker,
-    pexelsApiKey: overrides.pexelsApiKey ?? "",
-    pixabayApiKey: overrides.pixabayApiKey ?? "",
+    pexelsApiKeys: overrides.pexelsApiKeys ?? [],
+    pixabayApiKeys: overrides.pixabayApiKeys ?? [],
     clipPercent: overrides.clipPercent ?? 70,
     imagePercent: overrides.imagePercent ?? 30,
     concurrency: overrides.concurrency ?? 4,
@@ -140,6 +146,10 @@ export function createConfig(overrides: Partial<Config> = {}): Config {
     renderer: (overrides as any).renderer ?? "remotion",
     srtChunkSize: overrides.srtChunkSize ?? 25,
     srtChunkDelayMs: overrides.srtChunkDelayMs ?? 0,
+    maxTokens: (overrides as any).maxTokens ?? 4096,
+    aspectRatio: (overrides as any).aspectRatio ?? "16:9",
+    renderMode: (overrides as any).renderMode ?? "bestSource",
+    projectName: (overrides as any).projectName,
     ...overrides,
   };
 }

@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import type { SavedProject } from "../../shared/types";
+import { fmtElapsed } from "./usePipeline";
 
 interface UseProjectsDeps {
 	activePipelineProjectIdRef: React.MutableRefObject<string | null>;
@@ -43,6 +44,12 @@ interface UseProjectsDeps {
 	setOutputPath: (v: string | null) => void;
 	setPipelineStateInfo: (v: any) => void;
 	setConfirm: (v: any) => void;
+	setRenderStartTime: (v: number | null) => void;
+	setRenderElapsed: (v: string) => void;
+	setRenderSizes: (v: { h264Bytes: number; finalBytes: number } | null) => void;
+	setProjectName: (v: string) => void;
+	setSectionPlan: (v: any) => void;
+	setIsListicle: (v: boolean) => void;
 }
 
 export function useProjects(deps: UseProjectsDeps) {
@@ -55,10 +62,12 @@ export function useProjects(deps: UseProjectsDeps) {
 		setBeatTextSegments, setScriptLength, setSelectedBeatId, setSubscribeHintBeatIds,
 		setReDownloadingBeat, setCheckingAssets, setPreviewingAll, setDownloadingCandidateBeat,
 		setView, setError, setProgress, setLogs, setRenderingError, setRegenerating, setOutputPath,
-		setPipelineStateInfo, setConfirm,
+		setPipelineStateInfo, setConfirm, setRenderStartTime, setRenderElapsed, setRenderSizes, setProjectName,
+		setSectionPlan, setIsListicle,
 	} = deps;
 
 	const [projects, setProjects] = useState<SavedProject[]>([]);
+	const [openedNonce, setOpenedNonce] = useState(0);
 
 	useEffect(() => {
 		window.api.listProjects().then(setProjects);
@@ -70,10 +79,8 @@ export function useProjects(deps: UseProjectsDeps) {
 
 	const autoSaveProject = useCallback(async (status: string, extra?: any) => {
 		if (!scriptPath && !srtPath || !voPath) return;
-		const name = scenePlan?.title || srtPath?.split("/").pop()?.replace(/\.[^.]+$/, "") || scriptPath?.split("/").pop()?.replace(/\.[^.]+$/, "") || "Untitled Project";
 		const data: any = {
 			...(currentProjectId ? { id: currentProjectId } : {}),
-			name,
 			scriptPath: scriptPath ?? undefined,
 			voPath,
 			musicPath: musicPath ?? undefined,
@@ -85,55 +92,79 @@ export function useProjects(deps: UseProjectsDeps) {
 			status,
 			...extra
 		};
+		if (extra?.name) {
+			data.name = extra.name;
+		} else if (!currentProjectId) {
+			data.name = srtPath?.split("/").pop()?.replace(/\.[^.]+$/, "") || scriptPath?.split("/").pop()?.replace(/\.[^.]+$/, "") || "Untitled Project";
+		}
 		const saved = await window.api.saveProject(data);
 		if (!currentProjectId) setCurrentProjectId(saved.id);
 		refreshProjects();
+		return saved;
 	}, [scriptPath, srtPath, voPath, musicPath, scenePlan, currentProjectId, beatCandidates, selectedCandidateIndex, assets, refreshProjects]);
 
 	const handleOpenProject = useCallback(async (project: SavedProject) => {
 		activePipelineProjectIdRef.current = null;
-		setScriptPath(project.scriptPath ?? null);
-		setVoPath(project.voPath);
-		setMusicPath(project.musicPath ?? null);
-		setSrtPath(project.srtPath ?? null);
-		setScenePlan(project.scenePlan ?? null);
-		setCurrentProjectId(project.id);
+		const fresh = await window.api.getProject(project.id);
+		const p = fresh ?? project;
+		setScriptPath(p.scriptPath ?? null);
+		setVoPath(p.voPath);
+		setMusicPath(p.musicPath ?? null);
+		setSrtPath(p.srtPath ?? null);
+		setScenePlan(p.scenePlan ?? null);
+		setCurrentProjectId(p.id);
+		setProjectName(p.name || "");
 		setError(null);
 		setProgress(null);
 		setLogs([]);
 		setRenderingError(null);
 		setRegenerating(false);
-		setOutputPath(project.outputPath ?? null);
+		setOutputPath(p.outputPath ?? null);
 		setAssets({});
 		setThumbnails({});
 		setBeatStatuses({});
 		setAssetValidation({});
 		setDownloadingBeats([]);
-		setBeatCandidates(project.beatCandidates ?? {});
-		setSelectedCandidateIndex(project.selectedCandidateIndex ?? {});
+		setBeatCandidates(p.beatCandidates ?? {});
+		setSelectedCandidateIndex(p.selectedCandidateIndex ?? {});
 		setBeatTextSegments({});
 		setScriptLength(0);
 		setSelectedBeatId(null);
 		setSubscribeHintBeatIds(new Set());
 		setReDownloadingBeat(null);
 		setCheckingAssets(false);
+		setSectionPlan(p.sectionPlan ? { ...p.sectionPlan, projectId: p.id } : null);
+		setIsListicle(p.isListicle ?? true);
 		setPreviewingAll(false);
 		setDownloadingCandidateBeat(null);
 		pendingPlanProjectIdRef.current = null;
 		let stateInfo = null;
-		if (project.id) try { stateInfo = await window.api.getPipelineState(project.id, project.scriptPath ?? "", project.voPath, project.srtPath); } catch {}
+		if (p.id) try { stateInfo = await window.api.getPipelineState(p.id, p.scriptPath ?? "", p.voPath, p.srtPath); } catch {}
 		setPipelineStateInfo(stateInfo);
-		let loadedAssets = stateInfo?.assets ?? project.assets ?? {};
-		if (project.scenePlan && Object.keys(loadedAssets).length === 0 && project.id) {
+		if (p.status === "complete" && (stateInfo as any)?.renderSegments?.elapsedMs) {
+			setRenderElapsed(fmtElapsed((stateInfo as any).renderSegments.elapsedMs));
+			setRenderStartTime(Date.now() - (stateInfo as any).renderSegments.elapsedMs);
+		} else {
+			setRenderElapsed("");
+			setRenderStartTime(null);
+		}
+		if (p.status === "complete" && (stateInfo as any)?.renderSegments?.renderSizes) {
+			setRenderSizes((stateInfo as any).renderSegments.renderSizes);
+		} else {
+			setRenderSizes(null);
+		}
+		let loadedAssets = stateInfo?.assets ?? p.assets ?? {};
+		if (p.scenePlan && Object.keys(loadedAssets).length === 0 && p.id) {
 			try {
-				const recovered = await window.api.recoverAssets(project.scenePlan.beats, project.id);
+				const recovered = await window.api.recoverAssets(p.scenePlan.beats, p.id);
 				if (Object.keys(recovered).length > 0) loadedAssets = recovered;
 			} catch {}
 		}
 		setAssets(loadedAssets);
-		if (project.status === "complete" && project.outputPath) setView("complete");
-		else if (project.scenePlan) setView("editor");
+		if (p.status === "complete" && p.outputPath) setView("complete");
+		else if (p.scenePlan) setView("editor");
 		else setView("input");
+		setOpenedNonce((n) => n + 1);
 	}, []);
 
 	const handleNewProject = useCallback(() => {
@@ -165,10 +196,13 @@ export function useProjects(deps: UseProjectsDeps) {
 		setConfirm(null);
 		setPreviewingAll(false);
 		setDownloadingCandidateBeat(null);
+		setSectionPlan(null);
+		setIsListicle(true);
 		setBeatTextSegments({});
 		setSelectedBeatId(null);
 		setSubscribeHintBeatIds(new Set());
 		pendingPlanProjectIdRef.current = null;
+		setOpenedNonce((n) => n + 1);
 	}, []);
 
 	const handleRenameProject = useCallback(async (id: string, name: string) => {
@@ -185,5 +219,6 @@ export function useProjects(deps: UseProjectsDeps) {
 	return {
 		projects, setProjects, refreshProjects, autoSaveProject,
 		handleOpenProject, handleNewProject, handleRenameProject, handleDeleteProject,
+		openedNonce,
 	};
 }

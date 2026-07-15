@@ -1,6 +1,25 @@
 # M - Session Log
 
-## Session 20 (Current)
+## Session 21 (Current)
+
+### Completed
+- Fixed app not launching after asar rebuild — root cause was `update-app.sh` was NOT being used; manual `npx asar pack` packed wrong directory without `node_modules`
+- Created `out/package.json` with `"main": "main/index.js"` for standalone asar builds
+- Discovered the correct update workflow: `update-app.sh` creates staging dir with `node_modules + out + src` and packs that
+- Changed Ken Burns ping-pong: `smoothPingPong` now goes **0→1→0.85** (was 0→1→0) — return covers only 15%, no bounce feel
+- Fixed `renderVideoS is not defined` error — was a stale app instance, resolved by rebuild
+
+### Files Changed
+- `out/package.json`: Created with `"main": "main/index.js"` (for standalone builds)
+- `src/pipeline/ffmpeg-renderer.ts`: `smoothPingPong` return half changed from `smoothstep(2-2*on/last)` to `0.85 + 0.15 * smoothstep(2-2*on/last)` — returns only 15% instead of 100%
+
+### Key Learning
+- `update-app.sh` is the ONLY correct way to update the app — it packs `node_modules/` which `externalizeDepsPlugin()` requires at runtime
+- Manual `npx asar pack out/` or `npx asar pack src-electron/` both fail because they miss dependencies
+
+---
+
+## Session 20 (Completed)
 
 ### Completed
 - Added `None (Manual Review)` option for the quality checker model in quick model selector and settings

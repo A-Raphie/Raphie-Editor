@@ -1,4 +1,5 @@
 import fs from "fs/promises";
+import { existsSync, readFileSync } from "fs";
 import path from "path";
 import type { ScenePlan, PipelineState, AssetMapping } from "../types/scenePlan.js";
 import { sanitizeScenePlan } from "../types/scenePlan.js";
@@ -6,6 +7,7 @@ import type { Config } from "../config.js";
 import { Logger } from "../utils/logger.js";
 import { parseFile } from "../utils/fileParser.js";
 import { planScenes, planScenesFromSrt, addSubscribeOverlays } from "./scenePlanner.js";
+import { loadOverrides } from "./overlayOverrides.js";
 import { sourceAllAssets } from "./assetSourcer.js";
 import { qualityCheckAssets } from "./qualityChecker.js";
 import { renderVideoSegments } from "./renderer.js";
@@ -44,6 +46,7 @@ export class Pipeline {
   public onProgress?: (progress: PipelineProgressEvent) => void;
   public onAssetBatch?: (assets: AssetMapping) => void;
   public onBeatStatus?: (beatId: string, status: string, downloadPercent?: number) => void;
+  public onRenderSizes?: (h264Bytes: number, finalBytes: number) => void;
 
   constructor(config: Config) {
     this.config = config;
@@ -115,6 +118,7 @@ export class Pipeline {
       scriptPath,
       voPath,
       musicPath: musicPath ?? "",
+      srtPath: srtPath ?? "",
       renderSegments: null,
     };
     await this.saveState();
@@ -210,6 +214,7 @@ export class Pipeline {
       scriptPath,
       voPath,
       musicPath: musicPath ?? "",
+      srtPath: srtPath ?? "",
       renderSegments: null,
     };
     await this.saveState();
@@ -293,6 +298,59 @@ export class Pipeline {
       await this.logger.log(`Subscribe CTA overlays: ${scenePlan.beats.filter(b => b.overlay?.type === "subscribe_cta").length} beats tagged`);
     }
 
+    // Callout/banner overlays: detect teaser mentions + tag list item banners.
+    // NOT gated on vfxPath — uses PNG generation + FFmpeg overlay (no pre-rendered asset).
+    if (srtPath) {
+      try {
+        const { parseSrt } = await import("../utils/srtParser.js");
+        const srtContent = await fs.readFile(srtPath, "utf-8");
+        const segments = parseSrt(srtContent);
+        const { extractTeaserMentions, addCalloutOverlays } = await import("./scenePlanner.js");
+        const { loadOverrides } = await import("./overlayOverrides.js");
+
+        // Load user-verified section plan (from Step 2: Scene Plan)
+        const sectionPlanPath = path.join(this.config.outputDir, "section_plan.json");
+        let sectionPlan: any = { title: "", sections: [] };
+        if (existsSync(sectionPlanPath)) {
+          const saved = JSON.parse(await fs.readFile(sectionPlanPath, "utf-8"));
+          sectionPlan = saved;
+        } else {
+          // Fallback: generate from SRT if no saved plan
+          const { generateSectionPlanFromSrt } = await import("./scenePlanner.js");
+          sectionPlan = generateSectionPlanFromSrt(srtPath, scenePlan.totalDurationSeconds, this.logger);
+        }
+
+        // Load manual overlay overrides (from Step 3: Overlay Editor)
+        const overrides = loadOverrides(this.config.outputDir, "", this.logger);
+        if (!overrides) {
+          await this.logger.warn("⚠️ No overlay_overrides.json — using auto-detection. Complete Step 3: Overlay Editor for precise control.");
+        }
+
+        // Parse SRT for teaser mentions ONLY
+        const items = (sectionPlan.sections ?? [])
+          .filter((s: any) => s.type === "list")
+          .map((s: any) => ({
+            number: s.number ?? 0,
+            label: s.label ?? "",
+            startTime: s.startTime ?? 0,
+            sourceSnippet: s.sourceSnippet ?? "",
+          })).filter((i: any) => i.number > 0);
+
+        if (items.length > 0) {
+          const teaserMentions = extractTeaserMentions(segments, items, this.logger);
+          addCalloutOverlays(scenePlan, teaserMentions, sectionPlan, this.logger, overrides ?? undefined);
+          const calloutCount = scenePlan.beats.filter(b => b.overlay?.type === "number_callout").length;
+          const bannerCount = scenePlan.beats.filter(b => b.overlay?.type === "item_banner").length;
+          const subscribeCount = scenePlan.beats.filter(b => b.overlay?.type === "subscribe_cta").length;
+          await this.logger.log(`Callout overlays: ${calloutCount} teaser callout(s), ${bannerCount} item banner(s), ${subscribeCount} subscribe CTA(s)`);
+        } else {
+          await this.logger.log("No list sections found for callout detection");
+        }
+      } catch (err: any) {
+        await this.logger.warn(`Callout detection failed (non-fatal): ${err.message}`);
+      }
+    }
+
     const scenePlanPath = path.join(this.config.outputDir, SCENE_PLAN_FILE);
     await fs.writeFile(scenePlanPath, JSON.stringify(scenePlan, null, 2));
 
@@ -309,6 +367,7 @@ export class Pipeline {
       scriptPath,
       voPath,
       musicPath: musicPath ?? "",
+      srtPath: srtPath ?? "",
       renderSegments: null,
     };
     await this.saveState();
@@ -533,10 +592,16 @@ export class Pipeline {
         previousElapsedMs: existingState?.elapsedMs,
         sessionTimes: existingState?.sessionTimes,
         parallelSegments,
+        onRenderSizes: (h264Bytes, finalBytes) => {
+          this.onRenderSizes?.(h264Bytes, finalBytes);
+          if (this.state.renderSegments) {
+            (this.state.renderSegments as any).renderSizes = { h264Bytes, finalBytes };
+            this.saveState().catch(() => {});
+          }
+        },
       }
     );
 
-    this.state.renderSegments = null;
     return { outputPath };
   }
 
@@ -704,12 +769,13 @@ export class Pipeline {
     await this.logger.log("Cleanup complete");
   }
 
-  async renderOnly(voPath?: string, musicPath?: string): Promise<string> {
+  async renderOnly(voPath?: string, musicPath?: string, srtPath?: string): Promise<string> {
     this.cancelled = false;
     const stateData = await fs.readFile(this.statePath, "utf-8");
     this.state = JSON.parse(stateData) as PipelineState;
     if (voPath) this.state.voPath = voPath;
     if (musicPath) this.state.musicPath = musicPath;
+    if (srtPath) this.state.srtPath = srtPath;
     const runId = `render_${Date.now()}`;
     this.logger = new Logger(this.config, runId);
     this.logger.onLog = (msg) => this.onLog?.(msg);
@@ -720,6 +786,76 @@ export class Pipeline {
     const scenePlan = sanitizeScenePlan(JSON.parse(await fs.readFile(scenePlanPath, "utf-8")));
     await this.logger.log(`Render-only: ${scenePlan.beats.length} beats`);
 
+    await this.logger.log(`[DEBUG] State: srtPath="${this.state.srtPath ?? "undefined"}", scriptPath="${this.state.scriptPath}", voPath="${this.state.voPath}", musicPath="${this.state.musicPath}"`);
+
+    // Callout/banner overlays: detect teaser mentions + tag list item banners.
+    // Must run in renderOnly too (not just run()) since the user clicks Render
+    // after downloading candidates — which goes through this path.
+    const resolvedSrtPath = this.state.srtPath;
+    const sectionPlanPath = path.join(this.config.outputDir, "section_plan.json");
+    const srtFileExists = resolvedSrtPath ? existsSync(resolvedSrtPath) : false;
+    await this.logger.log(`[DEBUG] Callout detection pre-check: srtPath="${resolvedSrtPath ?? "undefined"}", srtFileExists=${srtFileExists}`);
+
+    if (resolvedSrtPath && existsSync(resolvedSrtPath)) {
+      try {
+        const { parseSrt } = await import("../utils/srtParser.js");
+        const srtContent = await fs.readFile(resolvedSrtPath, "utf-8");
+        const segments = parseSrt(srtContent);
+        await this.logger.log(`[DEBUG] SRT loaded: ${segments.length} segments from "${resolvedSrtPath}"`);
+        const { extractTeaserMentions, addCalloutOverlays } = await import("./scenePlanner.js");
+        const { loadOverrides } = await import("./overlayOverrides.js");
+
+        // Load user-verified section plan (from Step 2: Scene Plan)
+        const sectionPlanPath = path.join(this.config.outputDir, "section_plan.json");
+        let sectionPlan: any = { title: "", sections: [] };
+        if (existsSync(sectionPlanPath)) {
+          const saved = JSON.parse(await fs.readFile(sectionPlanPath, "utf-8"));
+          sectionPlan = saved;
+        } else {
+          await this.logger.warn("⚠️ No section_plan.json found — regenerating from SRT");
+          const { generateSectionPlanFromSrt } = await import("./scenePlanner.js");
+          sectionPlan = generateSectionPlanFromSrt(resolvedSrtPath, scenePlan.totalDurationSeconds, this.logger);
+        }
+
+        // Load manual overlay overrides (from Step 3: Overlay Editor)
+        const overrides = loadOverrides(this.config.outputDir, "", this.logger);
+        if (!overrides) {
+          await this.logger.warn("⚠️ No overlay_overrides.json — using auto-detection. Complete Step 3: Overlay Editor for precise control.");
+        }
+
+        // Parse SRT for teaser mentions ONLY
+        const items = (sectionPlan.sections ?? [])
+          .filter((s: any) => s.type === "list")
+          .map((s: any) => ({
+            number: s.number ?? 0,
+            label: s.label ?? "",
+            startTime: s.startTime ?? 0,
+            sourceSnippet: s.sourceSnippet ?? "",
+          })).filter((i: any) => i.number > 0);
+
+        if (items.length > 0) {
+          const teaserMentions = extractTeaserMentions(segments, items, this.logger);
+          await this.logger.log(`[DEBUG] Teaser mentions: ${teaserMentions.length} (${teaserMentions.map(t => `#${t.number}@${t.startTime.toFixed(1)}s`).join(", ")})`);
+          addCalloutOverlays(scenePlan, teaserMentions, sectionPlan, this.logger, overrides ?? undefined);
+          const calloutCount = scenePlan.beats.filter(b => b.overlay?.type === "number_callout").length;
+          const bannerCount = scenePlan.beats.filter(b => b.overlay?.type === "item_banner").length;
+          const subscribeCount = scenePlan.beats.filter(b => b.overlay?.type === "subscribe_cta").length;
+          await this.logger.log(`Callout overlays: ${calloutCount} teaser callout(s), ${bannerCount} item banner(s), ${subscribeCount} subscribe CTA(s)`);
+          for (const b of scenePlan.beats) {
+            if (b.overlay) {
+              await this.logger.log(`[DEBUG] Beat ${b.id}: overlay=${b.overlay.type}, showAt=${b.overlay.showAt}, beat.startTime=${b.startTime}, beat.duration=${b.duration}`);
+            }
+          }
+        } else {
+          await this.logger.log(`[DEBUG] No items detected — skipping callout overlay detection`);
+        }
+      } catch (err: any) {
+        await this.logger.warn(`Callout detection failed (non-fatal): ${err.message}`);
+      }
+    } else {
+      await this.logger.log(`[DEBUG] Callout detection SKIPPED: srtPath="${resolvedSrtPath ?? "undefined"}", srtFileExists=${srtFileExists}`);
+    }
+
     const missing = scenePlan.beats
       .filter((b) => b.type === "clip" || b.type === "image")
       .filter((b) => !this.state.assets[b.id]);
@@ -728,10 +864,20 @@ export class Pipeline {
       throw new Error(`Cannot render: ${missing.length} beat(s) have no assets: ${details}`);
     }
 
-    const verifiedAssets = await this.verifyAssetsExist(this.state.assets);
-    const droppedCount = Object.keys(this.state.assets).length - Object.keys(verifiedAssets).length;
+    // Only verify assets for beats that exist in the current scene plan.
+    // pipeline_state.json may have stale entries from older, longer plans.
+    const sceneBeatIds = new Set(scenePlan.beats.map((b) => b.id));
+    const planAssets: Record<string, string> = {};
+    for (const [beatId, assetPath] of Object.entries(this.state.assets)) {
+      if (sceneBeatIds.has(beatId)) {
+        planAssets[beatId] = assetPath;
+      }
+    }
+
+    const verifiedAssets = await this.verifyAssetsExist(planAssets);
+    const droppedCount = Object.keys(planAssets).length - Object.keys(verifiedAssets).length;
     if (droppedCount > 0) {
-      const details = Object.keys(this.state.assets)
+      const details = Object.keys(planAssets)
         .filter((id) => !verifiedAssets[id])
         .map((id) => `${id} (${scenePlan.beats.find((b) => b.id === id)?.searchQuery ?? "unknown"})`)
         .join(", ");
@@ -767,12 +913,13 @@ export class Pipeline {
     }
   }
 
-  async renderNew(voPath?: string, musicPath?: string): Promise<string> {
+  async renderNew(voPath?: string, musicPath?: string, srtPath?: string): Promise<string> {
     try {
       const stateData = await fs.readFile(this.statePath, "utf-8");
       this.state = JSON.parse(stateData) as PipelineState;
       if (voPath) this.state.voPath = voPath;
       if (musicPath) this.state.musicPath = musicPath;
+      if (srtPath) this.state.srtPath = srtPath;
       if (this.state.renderSegments?.segmentDir) {
         try {
           const rimraf = await import("fs");

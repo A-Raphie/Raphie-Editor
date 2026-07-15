@@ -34,8 +34,45 @@ export function getProjectRoot(): string {
   return path.resolve(__dirname, "../..");
 }
 
+// In-memory id→slug cache so getProjectDir resolves to human-readable folders
+// without reading projects.json on every call. Refreshed by refreshSlugCache()
+// (called after every projects.json write) and lazily on first access.
+let slugCache: Record<string, string> | null = null;
+
+function getProjectsJsonPath(): string {
+  return path.join(app.getPath("userData"), "projects.json");
+}
+
+function loadSlugCache(): void {
+  slugCache = {};
+  try {
+    const p = getProjectsJsonPath();
+    if (!fs.existsSync(p)) return;
+    const projects = JSON.parse(fs.readFileSync(p, "utf-8")) as Array<{ id: string; slug?: string }>;
+    for (const proj of projects) {
+      if (proj.id && proj.slug) slugCache[proj.id] = proj.slug;
+    }
+  } catch {
+    // leave empty cache
+  }
+}
+
+export function refreshSlugCache(): void {
+  slugCache = null; // invalidate; lazy reload on next getProjectDir
+}
+
+export function setSlugForId(id: string, slug: string): void {
+  if (!slugCache) loadSlugCache();
+  slugCache![id] = slug;
+}
+
 export function getProjectDir(projectId: string): string {
-  return path.join(getProjectRoot(), "projects", projectId);
+  // Resolve id→slug for a human-readable folder name; fall back to the id.
+  if (projectId === "__probe__") return path.join(getProjectRoot(), "projects", "__probe__");
+  if (!slugCache) loadSlugCache();
+  const slug = slugCache![projectId];
+  const folderName = slug || projectId;
+  return path.join(getProjectRoot(), "projects", folderName);
 }
 
 export function getSettingsPath(): string {

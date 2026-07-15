@@ -32,6 +32,7 @@ export default defineConfig({
       alias: {
         "@": resolve("src-electron/renderer/src"),
       },
+      extensions: [".tsx", ".ts", ".js", ".json"],
     },
   },
 });

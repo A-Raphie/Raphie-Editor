@@ -80,6 +80,9 @@ export async function sourceAllAssets(
 ): Promise<{ assets: AssetMapping; failed: Record<string, { reason: string }> }> {
   const assets: AssetMapping = { ...existingAssets };
   const failed: Record<string, { reason: string }> = {};
+  // Shared exclude list: accumulate URLs as beats download so later beats in
+  // the same run don't pick the same clip/image (prevents queue duplicates).
+  const downloadedUrls = new Set<string>();
 
   const clipBeats = beats.filter((b) => b.type === "clip" && !existingAssets[b.id]);
   const imageBeats = beats.filter((b) => b.type === "image" && !existingAssets[b.id]);
@@ -100,8 +103,8 @@ export async function sourceAllAssets(
   };
 
   await Promise.all([
-    sourceBeatsParallel(clipBeats, "clip", assets, failed, config, logger, afterBeatDone, onAssetComplete, signal, onBeatStatus),
-    sourceBeatsParallel(imageBeats, "image", assets, failed, config, logger, afterBeatDone, onAssetComplete, signal, onBeatStatus),
+    sourceBeatsParallel(clipBeats, "clip", assets, failed, config, logger, afterBeatDone, onAssetComplete, signal, onBeatStatus, downloadedUrls),
+    sourceBeatsParallel(imageBeats, "image", assets, failed, config, logger, afterBeatDone, onAssetComplete, signal, onBeatStatus, downloadedUrls),
   ]);
 
   await logger.log(
@@ -121,14 +124,15 @@ async function sourceBeatsParallel(
   onBeatDone: () => Promise<void>,
   onAssetComplete?: (assets: AssetMapping) => Promise<void>,
   signal?: AbortSignal,
-  onBeatStatus?: (beatId: string, status: string, downloadPercent?: number) => void
+  onBeatStatus?: (beatId: string, status: string, downloadPercent?: number) => void,
+  downloadedUrls?: Set<string>
 ): Promise<void> {
   const { concurrency } = config;
   for (let i = 0; i < beats.length; i += concurrency) {
     if (signal?.aborted) break;
     const batch = beats.slice(i, i + concurrency);
     const results = await Promise.allSettled(
-      batch.map((beat) => sourceBeatWithThumbnails(beat, beatKind, config, logger, signal, onBeatStatus))
+      batch.map((beat) => sourceBeatWithThumbnails(beat, beatKind, config, logger, signal, onBeatStatus, downloadedUrls))
     );
     for (let j = 0; j < results.length; j++) {
       const result = results[j];
@@ -155,7 +159,8 @@ async function sourceBeatWithThumbnails(
   config: Config,
   logger: Logger,
   signal?: AbortSignal,
-  onBeatStatus?: (beatId: string, status: string, downloadPercent?: number) => void
+  onBeatStatus?: (beatId: string, status: string, downloadPercent?: number) => void,
+  downloadedUrls?: Set<string>
 ): Promise<SourceResult> {
   const isClip = kind === "clip";
   const ext = isClip ? ".mp4" : ".jpg";
@@ -178,10 +183,13 @@ async function sourceBeatWithThumbnails(
     await logger.log(`${beat.id}: searching "${query}"...`);
 
     let candidates: any[];
+    const excludeSet = downloadedUrls && downloadedUrls.size > 0 ? downloadedUrls : undefined;
+    // Pluralize single-word queries for better Pexels results.
+    const pluralQuery = query.includes(" ") ? query : (query.endsWith("s") ? query : query + "s");
     if (isClip) {
-      candidates = await searchAllVideoCandidates(query, config.pexelsApiKey, config.pixabayApiKey);
+      candidates = await searchAllVideoCandidates(pluralQuery, config.pexelsApiKeys, config.pixabayApiKeys, excludeSet, config.stockCategory);
     } else {
-      candidates = await searchAllImageCandidates(query, config.pexelsApiKey, config.pixabayApiKey);
+      candidates = await searchAllImageCandidates(pluralQuery, config.pexelsApiKeys, config.pixabayApiKeys, excludeSet, config.stockCategory);
     }
 
     if (candidates.length === 0 && !translatedUsed && query) {
@@ -193,9 +201,9 @@ async function sourceBeatWithThumbnails(
           if (signal?.aborted) break;
           await logger.log(`${beat.id}: retrying with "${alt}"...`);
           if (isClip) {
-            candidates = await searchAllVideoCandidates(alt, config.pexelsApiKey, config.pixabayApiKey);
+            candidates = await searchAllVideoCandidates(alt, config.pexelsApiKeys, config.pixabayApiKeys, undefined, config.stockCategory);
           } else {
-            candidates = await searchAllImageCandidates(alt, config.pexelsApiKey, config.pixabayApiKey);
+            candidates = await searchAllImageCandidates(alt, config.pexelsApiKeys, config.pixabayApiKeys, undefined, config.stockCategory);
           }
           if (candidates.length > 0) {
             await logger.log(`${beat.id}: found ${candidates.length} candidates for "${alt}"`);
@@ -270,6 +278,8 @@ async function sourceBeatWithThumbnails(
             await logger.log(`${beat.id}: done — ${candidate.width}x${candidate.height} from ${candidate.source}${sizeStr ? ` (${sizeStr})` : ""}`);
           }
 
+          // Record the downloaded URL so later beats in this run exclude it.
+          if (downloadedUrls && candidate.url) downloadedUrls.add(candidate.url);
           return { beatId: beat.id, assetPath: finalPath, success: true };
         }
 

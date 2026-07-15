@@ -11,6 +11,7 @@ export const PLANNER_MODELS: ModelOption[] = [
   { value: "qwen/qwen3-235b-a22b-2507", label: "Qwen3 235B 2507", cost: "~$0.03/hr" },
   { value: "google/gemma-3-4b-it", label: "Gemma 3 4B", cost: "~$0.02/hr" },
   { value: "openrouter/owl-alpha", label: "Owl Alpha", cost: "free" },
+  { value: "cohere/north-mini-code:free", label: "North Mini Code", cost: "free" },
 ];
 
 export const CHECKER_MODELS: ModelOption[] = [
@@ -33,8 +34,9 @@ export interface CandidatePreview {
 }
 
 export interface SavedProject {
-  id: string;
-  name: string;
+	id: string;
+	name: string;
+	slug?: string;
   createdAt: string;
   updatedAt: string;
   scriptPath?: string;
@@ -48,6 +50,8 @@ export interface SavedProject {
   beatCandidates?: Record<string, any[]>;
   selectedCandidateIndex?: Record<string, number>;
   assets?: Record<string, string>;
+  sectionPlan?: any;
+  isListicle?: boolean;
 }
 
 export const IPC_CHANNELS = {
@@ -89,14 +93,22 @@ export const IPC_CHANNELS = {
   DOWNLOAD_SELECTED_CANDIDATE: "download-selected-candidate",
   GET_BEAT_TEXT_SEGMENTS: "get-beat-text-segments",
   RECOVER_ASSETS: "recover-assets",
+  GET_RENDER_ESTIMATE: "get-render-estimate",
+  PRERENDER_EXISTING_IMAGES: "prerender-existing-images",
+  PRERENDER_PROGRESS: "prerender-progress",
+  RENDER_SIZES: "render-sizes",
+  GENERATE_SECTION_PLAN: "generate-section-plan",
+  GET_RATE_LIMITS: "get-rate-limits",
+  OVERLAY_OVERRIDES_LOAD: "overlay-overrides:load",
+  OVERLAY_OVERRIDES_SAVE: "overlay-overrides:save",
 } as const;
 
 export interface AppSettings {
   openrouterApiKeys: string[];
   scenePlannerModel: string;
   qualityCheckerModel: string;
-  pexelsApiKey: string;
-  pixabayApiKey: string;
+  pexelsApiKeys: string[];
+  pixabayApiKeys: string[];
   clipPercent: number;
   imagePercent: number;
   concurrency: number;
@@ -119,7 +131,7 @@ export interface AppSettings {
   bodyClipMax?: number;
   maxThumbnailsPerQuery?: number;
   musicVolume?: number;
-  videoCodec?: "h265" | "h264";
+  aspectRatio?: "16:9" | "9:16";
   qualityScoreThreshold?: number;
   segmentLength?: number;
   enableVignette?: boolean;
@@ -136,7 +148,24 @@ export interface AppSettings {
   enableQualityCheckOnPreview?: boolean;
   srtChunkSize?: number;
   srtChunkDelayMs?: number;
+  maxTokens?: number;
   rulesVersion?: number;
+  stockCategory?: string;
+  sectionTemplates?: SectionPlanTemplate[];
+  fastListiclePlan?: boolean;
+}
+
+export interface SectionPlanTemplateSection {
+  type: string;
+  label: string;
+  searchContext?: string;
+  number?: number;
+}
+
+export interface SectionPlanTemplate {
+  id: string;
+  name: string;
+  sections: SectionPlanTemplateSection[];
 }
 
 export interface PipelineProgress {

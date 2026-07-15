@@ -24,6 +24,7 @@ import {
 } from "./services/paths";
 import * as projectsService from "./services/projects";
 import { parseCommaList } from "../../src/config";
+import { loadOverrides, saveOverrides } from "../../src/pipeline/overlayOverrides";
 
 const execFileAsync = promisify(execFile);
 const SETTINGS_PATH = getSettingsPath();
@@ -57,17 +58,14 @@ const DEFAULT_PLANNER_RULES = `IF the script is a COUNT-UP or RANKED LIST (e.g. 
 - Do NOT use imagery from a different item in another item's section
 - When the next "Number [N]," appears, switch to that new item
 - Every searchQuery must include the section's item name or a closely related visual
-- VARY the visuals: show different angles, parts, preparations, stages, close-ups
-- Never reuse the same searchQuery in the same section
+- Reuse the same searchQuery for multiple beats in a section is OK — the system auto-deduplicates
 - When script mentions benefits → show THAT item specifically
 - When script mentions preparation → show THAT item being prepared
 - ALWAYS anchor the query to the section's item, never to abstract concepts
 
 EXAMPLES — replace [item] with each section's actual topic:
-- Section about [item] (e.g. "honey"): "raw honey jar", "honey dripping off spoon", "honeycomb close-up", "honey stirred into tea" ✓
-  - "natural remedy" ✗ (no honey) — "sweet liquid" ✗ (no honey)
-- Section about [item] (e.g. "aloe vera"): "aloe vera plant", "aloe gel scooped", "aloe leaf close-up", "aloe drink poured" ✓
-  - "green plant" ✗ (not specific) — "healthy drink" ✗ (no aloe vera)`;
+- Section about [item] (e.g. "honey"): "honey jar", "honey", "honeycomb" ✓
+- Section about [item] (e.g. "aloe vera"): "aloe vera", "aloe vera plant", "aloe leaf" ✓`;
 
 const DEFAULT_SEARCH_QUERY_RULES = `You are choosing what appears on screen for EACH beat. The searchQuery describes the visual footage/image to find on stock sites (Pexels, Pixabay).
 
@@ -97,8 +95,8 @@ Bad queries (nothing on stock sites): "agricultural innovation sustainable farmi
 
 - NEVER use "subscribe" as searchQuery (ABSOLUTELY NEVER)
 - When script mentions CTA ("subscribe", "like"), use a neutral query matching the surrounding context
-- Never reuse the same searchQuery across different beats — every beat MUST have a unique searchQuery
-- VARY your queries: use different angles, close-ups, stages, and perspectives even for the same subject`;
+- Reuse the same searchQuery across different beats is OK — the system auto-deduplicates
+- Do NOT add suffixes like "closeup", "macro", "aerial", "cinematic" — keep queries simple`;
 
 const DEFAULT_SETTINGS: AppSettings = {
   openrouterApiKeys: [],
@@ -113,20 +111,20 @@ const DEFAULT_SETTINGS: AppSettings = {
   qualityCheckPrompt: DEFAULT_QUALITY_PROMPT,
   scenePlannerRules: DEFAULT_PLANNER_RULES,
   searchQueryRules: DEFAULT_SEARCH_QUERY_RULES,
-  contentRules: `This is a PLANT/BOTANICAL documentary. EVERY search query MUST include plant/botanical visual context.
+  contentRules: `Feature the ACTUAL subject of each segment. Translate abstract script concepts into concrete, searchable visuals.
 
 RULES:
-- NEVER generate a searchQuery that has NO plant/botanical element
-- If the script describes a non-plant action (pouring, cooking, drinking), ADD plant context: "herbal tea pouring", "plant infusion in glass", "medicinal herbs on table"
-- Translate abstract concepts into plant visuals: "healing" → "medicinal herbs", "ancient remedy" → "dried herbs mortar", "healthy drink" → "green juice herbs"
-- Every query must contain at least one botanical term: plant, herb, leaf, flower, root, seed, garden, botanical, green, nature, moss, fern, tree, grass, vine, etc.
+- Every searchQuery must be a concrete noun or short phrase a stock photographer would actually photograph
+- If the segment is about a specific food/item, feature THAT food/item directly: "salmon", "chicken soup", "turmeric powder"
+- If the segment is about a plant/herb, use plant visuals: "aloe vera", "turmeric", "ginger root"
+- Translate abstract concepts into the closest concrete visual: "healing" → "herbal tea", "ancient remedy" → "dried herbs", "healthy drink" → "green juice"
+- Do NOT force plant context onto non-plant subjects. If the segment is about fish, search "fish" not "fish with herbs"
+- Every query MUST contain at least one word a stock photographer would use as a tag
 - EXAMPLE translations:
-  - "glass cup pouring water" → "herbal tea pouring glass" or "plant infusion glass"
-  - "healthy lifestyle" → "herbal garden" or "fresh herbs"
-  - "traditional medicine" → "medicinal herbs" or "dried botanicals"
-  - "kitchen preparation" → "herbs on cutting board" or "fresh basil"
-  - "ancient wisdom" → "old botanical book" or "dried herbs ancient"
-- Be specific about species, processes, and camera angles where possible`,
+  - "pouring a drink" → "herbal tea pouring" or "juice pouring glass"
+  - "healthy lifestyle" → "fresh vegetables" or "garden harvest"
+  - "cooking" → "kitchen cooking" or "food preparation"
+  - "ancient wisdom" → "old book pages" or "ancient temple"`,
   acceptedContexts: [
     "plants",
     "seeds",
@@ -148,6 +146,31 @@ RULES:
     "garden",
     "compost",
     "mushroom",
+    "meat",
+    "fish",
+    "salmon",
+    "chicken",
+    "beef",
+    "poultry",
+    "seafood",
+    "nuts",
+    "grains",
+    "honey",
+    "eggs",
+    "dairy",
+    "fermented",
+    "turmeric",
+    "ginger",
+    "garlic",
+    "tea",
+    "coffee",
+    "chocolate",
+    "cacao",
+    "spices",
+    "oil",
+    "vinegar",
+    "sugar",
+    "salt",
   ],
   hookDuration: 60,
   hookClipMin: 2,
@@ -159,7 +182,7 @@ RULES:
   enableQualityCheckOnPreview: true,
   renderer: "remotion",
   tempCleanupDays: 1,
-  rulesVersion: 1,
+  rulesVersion: 4,
 };
 
 function buildConfigOverrides(settings: AppSettings, projectId?: string, args?: any) {
@@ -168,8 +191,8 @@ function buildConfigOverrides(settings: AppSettings, projectId?: string, args?: 
     openrouterApiKeys: settings.openrouterApiKeys ?? [],
     scenePlannerModel: settings.scenePlannerModel,
     qualityCheckerModel: settings.qualityCheckerModel,
-    pexelsApiKey: settings.pexelsApiKey ?? "",
-    pixabayApiKey: settings.pixabayApiKey ?? "",
+    pexelsApiKeys: settings.pexelsApiKeys ?? [],
+    pixabayApiKeys: settings.pixabayApiKeys ?? [],
     clipPercent: settings.clipPercent ?? 70,
     imagePercent: settings.imagePercent ?? 30,
     concurrency: settings.concurrency,
@@ -202,7 +225,7 @@ function buildConfigOverrides(settings: AppSettings, projectId?: string, args?: 
     bodyClipMax: settings.bodyClipMax ?? 6,
     maxThumbnailsPerQuery: settings.maxThumbnailsPerQuery ?? 5,
     musicVolume: settings.musicVolume ?? 15,
-    videoCodec: settings.videoCodec ?? "h265",
+    videoCodec: args?.videoCodec ?? settings.videoCodec ?? "h265",
     qualityScoreThreshold: settings.qualityScoreThreshold ?? 5,
     segmentLength: settings.segmentLength ?? 900,
     enableVignette: settings.enableVignette ?? true,
@@ -218,11 +241,19 @@ function buildConfigOverrides(settings: AppSettings, projectId?: string, args?: 
     srtChunkDelayMs: settings.srtChunkDelayMs ?? 0,
     renderer: settings.renderer ?? "remotion",
     tempCleanupDays: settings.tempCleanupDays ?? 1,
+    renderMode: args?.renderMode,
+    aspectRatio: args?.aspectRatio,
+    projectName: args?.projectName,
+    stockCategory: settings.stockCategory ?? "food",
+    fastListiclePlan: settings.fastListiclePlan ?? true,
   };
 }
 
 export function registerIpcHandlers(win: BrowserWindow): void {
   let activePipeline: any = null;
+
+  // One-time migration: rename UUID project folders to human-readable slugs.
+  try { projectsService.migrateSlugs(); } catch (e) { console.error("Slug migration failed:", e); }
 
   for (const channel of Object.values(IPC_CHANNELS)) ipcMain.removeHandler(channel);
 
@@ -248,8 +279,51 @@ export function registerIpcHandlers(win: BrowserWindow): void {
   });
 
   ipcMain.handle(
+    IPC_CHANNELS.GENERATE_SECTION_PLAN,
+    async (_, srtPath: string, voPath: string, projectId: string) => {
+      const { createConfig } = await import("../../src/config");
+      ensureProjectDirs(projectId);
+
+      const settings = loadSettings();
+      process.env.OPENROUTER_API_KEY = settings.openrouterApiKeys?.[0] ?? "";
+
+      const config = createConfig(buildConfigOverrides(settings, projectId));
+      const { setBinPaths } = await import("../../src/utils/stockApi");
+      setBinPaths(config.ffprobePath);
+      const { getAudioDuration } = await import("../../src/utils/stockApi");
+      const { generateSectionPlan } = await import("../../src/pipeline/scenePlanner");
+      const { Logger } = await import("../../src/utils/logger");
+
+      const voDuration = await getAudioDuration(voPath);
+      const logger = new Logger(config, `sections_${Date.now()}`);
+      logger.onLog = (msg: string) => {
+        if (!win.isDestroyed()) win.webContents.send(IPC_CHANNELS.PIPELINE_LOG, msg);
+      };
+      await logger.init();
+
+      const sectionPlan = await generateSectionPlan(srtPath, voDuration, config, logger);
+      // Save section plan to disk so the orchestrator can load it for callout detection.
+      try {
+        const sectionPlanPath = path.join(getOutputDir(projectId), "section_plan.json");
+        fs.writeFileSync(sectionPlanPath, JSON.stringify(sectionPlan, null, 2));
+      } catch {}
+      await logger.close();
+      return sectionPlan;
+    }
+  );
+
+  ipcMain.handle(IPC_CHANNELS.GET_RATE_LIMITS, async () => {
+    try {
+      const { getRateLimitStatus } = await import("../../src/utils/stockApi");
+      return getRateLimitStatus();
+    } catch {
+      return { pexelsRemaining: 0, pixabayRemaining: 0 };
+    }
+  });
+
+  ipcMain.handle(
     IPC_CHANNELS.PREVIEW_SCENE_PLAN,
-    async (_, scriptPath: string, voPath: string, projectId: string, srtPath: string) => {
+    async (_, scriptPath: string, voPath: string, projectId: string, srtPath: string, sectionPlan?: any) => {
       const { createConfig } = await import("../../src/config");
       ensureProjectDirs(projectId);
 
@@ -285,12 +359,44 @@ export function registerIpcHandlers(win: BrowserWindow): void {
 
       let scenePlan;
       if (srtPath) {
-        scenePlan = await planScenesFromSrt(srtPath, voDuration, config, logger);
+        scenePlan = await planScenesFromSrt(srtPath, voDuration, config, logger, sectionPlan);
       } else if (scriptPath) {
         const { parseFile } = await import("../../src/utils/fileParser");
         scenePlan = await planScenes(await parseFile(scriptPath), voDuration, config, logger);
       } else {
         throw new Error("Either scriptPath or srtPath is required");
+      }
+
+      // Tag beats with callout/banner overlays at plan generation time so
+      // the badges show in the editor timeline immediately.
+      if (srtPath && sectionPlan) {
+        try {
+          const { parseSrt } = await import("../../src/utils/srtParser");
+          const { extractTeaserMentions, addCalloutOverlays } = await import("../../src/pipeline/scenePlanner");
+          const srtContent = fs.readFileSync(srtPath, "utf-8");
+          const segments = parseSrt(srtContent);
+          const listSections = (sectionPlan.sections ?? []).filter((s: any) => s.type === "list");
+          const items = listSections.map((s: any) => ({
+            number: s.number ?? 0,
+            label: s.label ?? "",
+            startTime: s.startTime ?? 0,
+            sourceSnippet: s.sourceSnippet ?? "",
+          })).filter((i: any) => i.number > 0);
+          if (items.length > 0) {
+            const teaserMentions = extractTeaserMentions(segments, items, logger);
+            logger.log(`Teaser detection: ${teaserMentions.length} mention(s) found for ${items.length} items`);
+            addCalloutOverlays(scenePlan, teaserMentions, sectionPlan, logger);
+            const calloutCount = scenePlan.beats.filter((b: any) => b.overlay?.type === "number_callout").length;
+            const bannerCount = scenePlan.beats.filter((b: any) => b.overlay?.type === "item_banner").length;
+            logger.log(`Overlays tagged: ${calloutCount} callout(s), ${bannerCount} banner(s)`);
+            // Save the scene plan WITH overlays to disk so renderOnly() picks
+            // them up even when srtPath is missing from the pipeline state.
+            const scenePlanDiskPath = path.join(getOutputDir(projectId), "scene_plan.json");
+            fs.writeFileSync(scenePlanDiskPath, JSON.stringify(scenePlan, null, 2));
+          }
+        } catch (err: any) {
+          logger.warn(`Callout detection error: ${err?.message ?? err}`);
+        }
       }
 
       if (!win.isDestroyed()) {
@@ -438,7 +544,11 @@ export function registerIpcHandlers(win: BrowserWindow): void {
       musicPath: string,
       mode: string,
       srtPath: string,
-      previewResolution: number
+      previewResolution: number,
+      aspectRatio?: string,
+      codec?: string,
+      renderMode?: string,
+      projectName?: string
     ) => {
       const { createConfig } = await import("../../src/config");
       const { Pipeline } = await import("../../src/pipeline/orchestrator");
@@ -449,7 +559,7 @@ export function registerIpcHandlers(win: BrowserWindow): void {
       const settings = loadSettings();
       process.env.OPENROUTER_API_KEY = settings.openrouterApiKeys?.[0] ?? "";
 
-      const config = createConfig(buildConfigOverrides(settings, projectId, { previewResolution }));
+      const config = createConfig(buildConfigOverrides(settings, projectId, { previewResolution, aspectRatio, videoCodec: codec, renderMode, projectName }));
       setBinPaths(config.ffprobePath);
       setMinResolution(config.downloadResolution);
 
@@ -522,15 +632,22 @@ export function registerIpcHandlers(win: BrowserWindow): void {
           win.webContents.send(IPC_CHANNELS.BEAT_STATUS, beatId, status, downloadPercent);
         }
       };
+      pipeline.onRenderSizes = (h264Bytes: number, finalBytes: number) => {
+        if (!win.isDestroyed()) {
+          win.webContents.send(IPC_CHANNELS.RENDER_SIZES, { h264Bytes, finalBytes });
+        }
+      };
 
       try {
+        pipeline.onLog?.(`[DEBUG] Render request: mode="${mode}", srtPath="${srtPath}", scriptPath="${scriptPath}", voPath="${voPath}", musicPath="${musicPath}", hasExistingAssets=${hasExistingAssets}`);
+
         let outputPath;
         if (hasExistingAssets && mode === "continue") {
-          outputPath = await pipeline.renderOnly(voPath, musicPath);
+          outputPath = await pipeline.renderOnly(voPath, musicPath, srtPath);
         } else if (hasExistingAssets && mode === "render") {
-          outputPath = await pipeline.renderNew(voPath, musicPath);
+          outputPath = await pipeline.renderNew(voPath, musicPath, srtPath);
         } else if (hasExistingAssets) {
-          outputPath = await pipeline.renderNew(voPath, musicPath);
+          outputPath = await pipeline.renderNew(voPath, musicPath, srtPath);
         } else {
           outputPath = await pipeline.run(scriptPath, voPath, musicPath, undefined, srtPath);
         }
@@ -902,15 +1019,18 @@ export function registerIpcHandlers(win: BrowserWindow): void {
 
   ipcMain.handle(
     IPC_CHANNELS.SEARCH_BEAT_CANDIDATES,
-    async (_, beatId: string, searchQuery: string, beatType: string, projectId: string) => {
+    async (_, beatId: string, searchQuery: string, beatType: string, projectId: string, excludeUrls?: string[]) => {
       const settings = loadSettings();
       process.env.OPENROUTER_API_KEY = settings.openrouterApiKeys?.[0] ?? "";
 
       const {
+        setMinResolution,
         searchAllVideoCandidates,
         searchAllImageCandidates,
         downloadCandidate,
+        rankByTags,
       } = await import("../../src/utils/stockApi");
+      setMinResolution(640);
       const { checkThumbnail } = await import("../../src/pipeline/qualityChecker");
       const { createConfig } = await import("../../src/config");
 
@@ -919,22 +1039,47 @@ export function registerIpcHandlers(win: BrowserWindow): void {
       const config = createConfig(buildConfigOverrides(settings, projectId));
       const isClip = beatType === "clip";
 
+      const excludeSet = excludeUrls?.length ? new Set(excludeUrls) : undefined;
+      // Pluralize single-word queries for better Pexels results
+      // (e.g. "walnut" → "walnuts" returns far more relevant videos/images).
+      const pluralQuery = searchQuery.includes(" ") ? searchQuery : (searchQuery.endsWith("s") ? searchQuery : searchQuery + "s");
       let candidates;
       if (isClip) {
         candidates = await searchAllVideoCandidates(
-          searchQuery,
-          config.pexelsApiKey,
-          config.pixabayApiKey
+          pluralQuery,
+          config.pexelsApiKeys,
+          config.pixabayApiKeys,
+          excludeSet,
+          config.stockCategory
         );
       } else {
         candidates = await searchAllImageCandidates(
-          searchQuery,
-          config.pexelsApiKey,
-          config.pixabayApiKey
+          pluralQuery,
+          config.pexelsApiKeys,
+          config.pixabayApiKeys,
+          excludeSet,
+          config.stockCategory
         );
       }
 
-      if (candidates.length === 0) return [];
+      // Auto-fallback: if a clip search returns too few relevant video results,
+      // also search for images and mix them in. A walnut photo with Ken Burns
+      // animation is far better than a duplicate or missing clip.
+      if (isClip && candidates.length < 10) {
+        const imageCandidates = await searchAllImageCandidates(
+          pluralQuery, config.pexelsApiKeys, config.pixabayApiKeys, excludeSet, config.stockCategory
+        );
+        const clipUrls = new Set(candidates.map((c: any) => c.url));
+        const imagePool = rankByTags(pluralQuery, imageCandidates)
+          .filter((img: any) => !clipUrls.has(img.url)); // dedupe against clips
+        for (const img of imagePool.slice(0, 30)) {
+          candidates.push({ ...img, type: "image" });
+        }
+      }
+
+      if (candidates.length === 0) {
+        return [];
+      }
 
       const approved: any[] = [];
 
@@ -949,7 +1094,7 @@ export function registerIpcHandlers(win: BrowserWindow): void {
         for (let i = 0; i < maxCheck; i++) {
           const candidate = candidates[i];
           if (!candidate.thumbnailUrl) {
-            approved.push({ ...candidate, type: isClip ? "clip" : "image" });
+            approved.push({ ...candidate, type: candidate.type ?? (isClip ? "clip" : "image") });
             continue;
           }
           const thumbPath = path.join(
@@ -959,10 +1104,10 @@ export function registerIpcHandlers(win: BrowserWindow): void {
           try {
             await downloadCandidate(candidate.thumbnailUrl, thumbPath, undefined, 15000);
             if ((await checkThumbnail(searchQuery, thumbPath, config, logger)).accepted) {
-              approved.push({ ...candidate, type: isClip ? "clip" : "image" });
+              approved.push({ ...candidate, type: candidate.type ?? (isClip ? "clip" : "image") });
             }
           } catch {
-            approved.push({ ...candidate, type: isClip ? "clip" : "image" });
+            approved.push({ ...candidate, type: candidate.type ?? (isClip ? "clip" : "image") });
           } finally {
             try {
               fs.unlinkSync(thumbPath);
@@ -971,13 +1116,13 @@ export function registerIpcHandlers(win: BrowserWindow): void {
         }
 
         if (approved.length === 0 && candidates.length > 0) {
-          approved.push({ ...candidates[0], type: isClip ? "clip" : "image" });
+          approved.push({ ...candidates[0], type: candidates[0].type ?? (isClip ? "clip" : "image") });
         }
 
         await logger.close();
       } else {
         for (const candidate of candidates) {
-          approved.push({ ...candidate, type: isClip ? "clip" : "image" });
+          approved.push({ ...candidate, type: candidate.type ?? (isClip ? "clip" : "image") });
         }
       }
 
@@ -987,7 +1132,7 @@ export function registerIpcHandlers(win: BrowserWindow): void {
 
   ipcMain.handle(
     IPC_CHANNELS.DOWNLOAD_SELECTED_CANDIDATE,
-    async (_, beatId: string, candidate: any, projectId: string) => {
+    async (_, beatId: string, candidate: any, projectId: string, beatMeta?: { duration: number; imageAnimation?: string; startTime?: number }) => {
       const { createConfig } = await import("../../src/config");
       const { downloadCandidate, probeVideo } = await import("../../src/utils/stockApi");
 
@@ -1011,7 +1156,11 @@ export function registerIpcHandlers(win: BrowserWindow): void {
       try {
         const { Logger } = await import("../../src/utils/logger");
         const logger = new Logger(config, `dl-${beatId}`);
-        logger.onLog = () => {};
+        logger.onLog = (msg: string) => {
+          if (!win.isDestroyed()) {
+            win.webContents.send(IPC_CHANNELS.PIPELINE_LOG, msg);
+          }
+        };
         await logger.init();
 
         if (!win.isDestroyed()) {
@@ -1032,11 +1181,13 @@ export function registerIpcHandlers(win: BrowserWindow): void {
         if (isClip) {
           const probe = await probeVideo(finalPath);
           const stat = fs.statSync(finalPath);
-          if (!stat || stat.size < 10000 || probe.duration <= 0 || probe.width === 0) {
-            try {
-              fs.unlinkSync(finalPath);
-            } catch {}
-            throw new Error("Downloaded video is corrupt or too small");
+          if (!stat || stat.size < 10000) {
+            try { fs.unlinkSync(finalPath); } catch {}
+            throw new Error(`Downloaded video is too small (${stat?.size ?? 0} bytes)`);
+          }
+          if (probe.duration <= 0 || probe.width === 0) {
+            try { fs.unlinkSync(finalPath); } catch {}
+            throw new Error(`Downloaded video probe failed (${probe.width}x${probe.height}, ${probe.duration}s) — possibly corrupt or wrong format`);
           }
         } else {
           const stat = fs.statSync(finalPath);
@@ -1044,7 +1195,7 @@ export function registerIpcHandlers(win: BrowserWindow): void {
             try {
               fs.unlinkSync(finalPath);
             } catch {}
-            throw new Error("Downloaded image is too small");
+            throw new Error(`Downloaded image is too small (${stat?.size ?? 0} bytes)`);
           }
         }
 
@@ -1087,14 +1238,36 @@ export function registerIpcHandlers(win: BrowserWindow): void {
               ],
               { timeout: 15000 }
             );
-          } catch {}
+          } catch (thumbErr: any) {
+            if (!win.isDestroyed()) win.webContents.send(IPC_CHANNELS.PIPELINE_LOG, `[thumb-failed] beat=${beatId} err=${thumbErr?.message ?? "unknown"}`);
+          }
         } else {
           try {
             fs.copyFileSync(finalPath, thumbPath);
-          } catch {}
+          } catch (copyErr: any) {
+            if (!win.isDestroyed()) win.webContents.send(IPC_CHANNELS.PIPELINE_LOG, `[thumb-copy-failed] beat=${beatId} err=${copyErr?.message ?? "unknown"}`);
+          }
         }
 
-        if (!win.isDestroyed()) {
+        let prerenderFailed = false;
+        if (!isClip && beatMeta && beatMeta.duration > 0) {
+          try {
+            const { prerenderImageToMp4 } = await import("../../src/pipeline/ffmpeg-renderer");
+            const prerenderPath = path.join(dir, `${beatId}_prerender.mp4`);
+            if (!win.isDestroyed()) {
+              win.webContents.send(IPC_CHANNELS.BEAT_STATUS, beatId, "converting");
+            }
+            await prerenderImageToMp4(finalPath, prerenderPath, beatMeta, config);
+          } catch (prerenderErr: any) {
+            prerenderFailed = true;
+            if (!win.isDestroyed()) {
+              win.webContents.send(IPC_CHANNELS.PIPELINE_LOG, `[prerender-failed] beat=${beatId} image=${finalPath} err=${prerenderErr?.message ?? "unknown"}`);
+              win.webContents.send(IPC_CHANNELS.BEAT_STATUS, beatId, "failed", undefined, "prerender_failed", prerenderErr?.message ?? "unknown");
+            }
+          }
+        }
+
+        if (!prerenderFailed && !win.isDestroyed()) {
           win.webContents.send(IPC_CHANNELS.BEAT_STATUS, beatId, "done");
         }
 
@@ -1114,6 +1287,85 @@ export function registerIpcHandlers(win: BrowserWindow): void {
         }
         return { path: null, thumbnail: null };
       }
+    }
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.PRERENDER_EXISTING_IMAGES,
+    async (_, projectId: string, force?: boolean) => {
+      const { createConfig } = await import("../../src/config");
+      const { prerenderImageToMp4 } = await import("../../src/pipeline/ffmpeg-renderer");
+      const { setBinPaths } = await import("../../src/utils/stockApi");
+
+      ensureProjectDirs(projectId);
+
+      const settings = loadSettings();
+      const config = createConfig(buildConfigOverrides(settings, projectId));
+      setBinPaths(config.ffprobePath);
+
+      const imagesDir = getImagesDir(projectId);
+      if (!fs.existsSync(imagesDir)) return { converted: 0 };
+
+      const statePath = path.join(getOutputDir(projectId), "pipeline_state.json");
+      let scenePlan: any = null;
+      const scenePlanPath = path.join(getOutputDir(projectId), "scene_plan.json");
+      if (fs.existsSync(scenePlanPath)) {
+        try { scenePlan = JSON.parse(fs.readFileSync(scenePlanPath, "utf-8")); } catch {}
+      }
+
+      const imageFiles = fs.readdirSync(imagesDir).filter((f) => /\.(jpg|jpeg|png|webp)$/i.test(f));
+      const toConvert: { imagePath: string; outputPath: string; beatId: string; beatMeta: { duration: number; imageAnimation?: string; startTime?: number } }[] = [];
+
+      for (const file of imageFiles) {
+        const beatId = file.replace(/\.(jpg|jpeg|png|webp)$/i, "");
+        const imagePath = path.join(imagesDir, file);
+        const prerenderPath = path.join(imagesDir, `${beatId}_prerender.mp4`);
+        if (fs.existsSync(prerenderPath)) {
+          if (!force) continue;
+          try { fs.unlinkSync(prerenderPath); } catch {}
+        }
+
+        let beatMeta: { duration: number; imageAnimation?: string; startTime?: number } = { duration: 5 };
+        const beat = scenePlan?.beats?.find((b: any) => b.id === beatId);
+        if (beat) {
+          beatMeta = { duration: beat.duration ?? 5, imageAnimation: beat.imageAnimation, startTime: beat.startTime };
+        }
+        toConvert.push({ imagePath, outputPath: prerenderPath, beatId, beatMeta });
+      }
+
+      if (toConvert.length === 0) return { converted: 0 };
+
+      if (!win.isDestroyed()) {
+        win.webContents.send(IPC_CHANNELS.PRERENDER_PROGRESS, { total: toConvert.length, done: 0 });
+      }
+
+      let converted = 0;
+      for (const item of toConvert) {
+        try {
+          await prerenderImageToMp4(item.imagePath, item.outputPath, item.beatMeta, config);
+          converted++;
+        } catch {}
+        if (!win.isDestroyed()) {
+          win.webContents.send(IPC_CHANNELS.PRERENDER_PROGRESS, { total: toConvert.length, done: converted });
+        }
+      }
+
+      return { converted };
+    }
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.GET_RENDER_ESTIMATE,
+    async (_, totalBeats: number, resolution: number, codec: string, renderMode?: string, durationSeconds?: number) => {
+      const duration = durationSeconds ?? totalBeats * 5;
+      const baseSecPerBeat = resolution >= 2160 ? 6 : resolution >= 1080 ? 2.5 : 1.2;
+      const modeMultiplier = renderMode === "bestSource" ? 1.5 : renderMode === "hybrid" ? 1.2 : 1.0;
+      const estMs = Math.ceil(totalBeats * baseSecPerBeat * modeMultiplier * 1000);
+      const baselineBps = codec === "h265"
+        ? (resolution >= 2160 ? 1875000 : resolution >= 1080 ? 750000 : 375000)
+        : (resolution >= 2160 ? 3125000 : resolution >= 1080 ? 1000000 : 500000);
+      const estSizeGB = (baselineBps * duration) / 1024 / 1024 / 1024;
+      return { estMs, estSizeGB };
     }
   );
 
@@ -1240,6 +1492,26 @@ export function registerIpcHandlers(win: BrowserWindow): void {
   ipcMain.handle(IPC_CHANNELS.RENAME_PROJECT, async (_, id: string, name: string) => {
     return projectsService.renameProject(id, name);
   });
+
+  // Overlay Overrides (Step 3: Overlay Editor)
+  ipcMain.handle(
+    IPC_CHANNELS.OVERLAY_OVERRIDES_LOAD,
+    async (_, projectId: string) => {
+      const { loadOverrides } = await import("../../src/pipeline/overlayOverrides.js");
+      const outputDir = getOutputDir(projectId);
+      return loadOverrides(outputDir, projectId);
+    }
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.OVERLAY_OVERRIDES_SAVE,
+    async (_, overrides: any) => {
+      const { saveOverrides } = await import("../../src/pipeline/overlayOverrides.js");
+      const outputDir = getOutputDir(overrides.projectId);
+      saveOverrides(outputDir, overrides);
+      return { ok: true };
+    }
+  );
 
   ipcMain.handle(
     IPC_CHANNELS.GENERATE_THUMBNAIL,
@@ -1375,7 +1647,11 @@ export function registerIpcHandlers(win: BrowserWindow): void {
 
       const { Logger } = await import("../../src/utils/logger");
       const logger = new Logger(config, `redl-${beatId}`);
-      logger.onLog = () => {};
+      logger.onLog = (msg: string) => {
+        if (!win.isDestroyed()) {
+          win.webContents.send(IPC_CHANNELS.PIPELINE_LOG, msg);
+        }
+      };
       await logger.init();
 
       let downloadError: string | undefined;
@@ -1489,7 +1765,7 @@ export function registerIpcHandlers(win: BrowserWindow): void {
 
       const thumbnail =
         finalPath && fs.existsSync(thumbPath) ? `${thumbPath}?t=${Date.now()}` : null;
-      return { path: finalPath || null, thumbnail };
+      return { path: finalPath || null, thumbnail, error: downloadError, errorDetails: downloadErrorDetails };
     }
   );
 
@@ -1809,6 +2085,7 @@ function loadSettings(): AppSettings {
     settings.searchQueryRules = DEFAULT_SETTINGS.searchQueryRules;
     settings.scenePlannerRules = DEFAULT_SETTINGS.scenePlannerRules;
     settings.contentRules = DEFAULT_SETTINGS.contentRules;
+    settings.acceptedContexts = DEFAULT_SETTINGS.acceptedContexts;
     settings.qualityCheckPrompt = DEFAULT_SETTINGS.qualityCheckPrompt;
     settings.rulesVersion = CURRENT_RULES_VERSION;
     migrated = true;

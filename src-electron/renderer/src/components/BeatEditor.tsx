@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import CandidatePicker from "./CandidatePicker";
 import type { CandidatePreview } from "../../../shared/types";
+import { beatDerailment, sectionLabel } from "../../../shared/sectionUtils";
 
 interface Beat {
 	id: string;
@@ -35,6 +36,13 @@ interface BeatEditorProps {
 	candidates: CandidatePreview[] | undefined;
 	selectedCandidateIndex: number | undefined;
 	scriptSegment: string | undefined;
+	rateLimits?: { pexelsRemaining: number; pixabayRemaining: number };
+	allBeatCandidates?: Record<string, any[]>;
+	allSelectedIndex?: Record<string, number>;
+	sectionPlan?: any;
+	onResetToSection?: ((beatId: string) => void) | undefined;
+	onRepreviewSection?: ((sectionId: string) => void) | undefined;
+	repreviewingSectionId?: string | null;
 }
 
 function fmtTime(seconds: number): string {
@@ -43,12 +51,18 @@ function fmtTime(seconds: number): string {
 	return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-export default function BeatEditor({ beat, assetPath, onReDownload, onSaveSearch, onToggleOverlay, onSearchBeat, onSelectCandidate, onDownloadCandidate, isReDownloading, beatStatus, subscribeHint, candidates, selectedCandidateIndex, scriptSegment }: BeatEditorProps) {
+export default function BeatEditor({ beat, assetPath, onReDownload, onSaveSearch, onToggleOverlay, onSearchBeat, onSelectCandidate, onDownloadCandidate, isReDownloading, beatStatus, subscribeHint, candidates, selectedCandidateIndex, scriptSegment, rateLimits, allBeatCandidates, allSelectedIndex, sectionPlan, onResetToSection, onRepreviewSection, repreviewingSectionId }: BeatEditorProps) {
 	const [query, setQuery] = useState(beat.searchQuery ?? "");
+	const [savedFlash, setSavedFlash] = useState(false);
+	const savedTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
 	useEffect(() => {
 		setQuery(beat.searchQuery ?? "");
 	}, [beat.id, beat.searchQuery]);
+
+	useEffect(() => {
+		return () => { if (savedTimerRef.current) clearTimeout(savedTimerRef.current); };
+	}, []);
 
 	const isDownloading = beatStatus?.status === "downloading";
 	const isSearching = beatStatus?.status === "searching";
@@ -57,11 +71,15 @@ export default function BeatEditor({ beat, assetPath, onReDownload, onSaveSearch
 
 	const startTime = beat.startTime ?? 0;
 	const endTime = startTime + beat.duration;
+	const derail = sectionPlan ? beatDerailment(beat, sectionPlan) : null;
 
 	const saveIfChanged = () => {
 		const trimmed = query.trim();
 		if (trimmed && trimmed !== beat.searchQuery) {
 			onSaveSearch?.(beat.id, trimmed);
+			setSavedFlash(true);
+			if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+			savedTimerRef.current = setTimeout(() => setSavedFlash(false), 1500);
 		}
 	};
 
@@ -108,10 +126,30 @@ export default function BeatEditor({ beat, assetPath, onReDownload, onSaveSearch
 						</span>
 					</>
 				)}
+				{rateLimits && (
+					<>
+						<span className="text-zinc-700 mx-0.5">|</span>
+						<span className={`text-[10px] font-mono ${rateLimits.pexelsRemaining < 20 ? "text-red-400" : rateLimits.pexelsRemaining < 100 ? "text-amber-400" : "text-emerald-400"}`} title="Pexels API quota remaining this hour">
+							P:{rateLimits.pexelsRemaining}
+						</span>
+						<span className={`text-[10px] font-mono ${rateLimits.pixabayRemaining < 100 ? "text-red-400" : rateLimits.pixabayRemaining < 1000 ? "text-amber-400" : "text-emerald-400"}`} title="Pixabay API quota remaining this hour">
+							X:{rateLimits.pixabayRemaining}
+						</span>
+					</>
+				)}
 				{scriptSegment && (
 					<>
 						<span className="text-zinc-700 mx-0.5">|</span>
 						<span className="text-[11px] text-zinc-500 italic truncate">{scriptSegment}</span>
+					</>
+				)}
+				{derail?.section && (
+					<>
+						<span className="text-zinc-700 mx-0.5">|</span>
+						<span className="text-[10px] text-zinc-500">Expected:</span>
+						<span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${derail.derailed ? "bg-rose-500/20 text-rose-300" : "bg-emerald-500/20 text-emerald-300"}`} title={`Section search context: ${derail.section.searchContext}`}>
+							{sectionLabel(derail.section)} {derail.derailed ? "⚠ derailed" : "✓"}
+						</span>
 					</>
 				)}
 			</div>
@@ -124,6 +162,19 @@ export default function BeatEditor({ beat, assetPath, onReDownload, onSaveSearch
 					onDownload={(index) => onDownloadCandidate?.(beat.id, index)}
 					isDownloading={isDownloading}
 					hasAsset={!!assetPath}
+					sectionLabel={derail?.section ? sectionLabel(derail.section) : undefined}
+					sectionContext={derail?.section?.searchContext}
+					usedUrls={(() => {
+						const urls = new Set<string>();
+						if (allBeatCandidates && allSelectedIndex) {
+							for (const [bid, cands] of Object.entries(allBeatCandidates)) {
+								if (bid === beat.id) continue;
+								const idx = allSelectedIndex[bid] ?? 0;
+								if (cands?.[idx]?.url) urls.add(cands[idx].url);
+							}
+						}
+						return urls;
+					})()}
 				/>
 			)}
 
@@ -137,8 +188,11 @@ export default function BeatEditor({ beat, assetPath, onReDownload, onSaveSearch
 					className="flex-1 max-w-[66%] bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/30 transition-all"
 					placeholder="Search query..."
 				/>
+				{savedFlash && (
+					<span className="text-[10px] text-emerald-400 font-medium animate-pulse">✓ Saved</span>
+				)}
 				<button
-					onClick={() => onSearchBeat?.(beat.id, query)}
+					onClick={() => { saveIfChanged(); onSearchBeat?.(beat.id, query); }}
 					disabled={isReDownloading || isSearching || !query.trim()}
 					className={`px-2.5 py-1 rounded text-[10px] font-medium transition-colors ${isReDownloading || isSearching || !query.trim() ? "bg-zinc-700 text-zinc-500 cursor-not-allowed" : "bg-zinc-600 hover:bg-zinc-500 text-zinc-200"}`}
 				>
@@ -150,10 +204,10 @@ export default function BeatEditor({ beat, assetPath, onReDownload, onSaveSearch
 							onDownloadCandidate?.(beat.id, selectedCandidateIndex ?? 0);
 						}
 					}}
-					disabled={isReDownloading || isDownloading || !candidates || candidates.length === 0 || !!assetPath}
-					className={`px-2.5 py-1 rounded text-[10px] font-medium transition-colors ${isReDownloading || isDownloading || !candidates || candidates.length === 0 || !!assetPath ? "bg-zinc-700 text-zinc-500 cursor-not-allowed" : "bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-zinc-900 font-semibold"}`}
+					disabled={isReDownloading || isDownloading || !candidates || candidates.length === 0}
+					className={`px-2.5 py-1 rounded text-[10px] font-medium transition-colors ${isReDownloading || isDownloading || !candidates || candidates.length === 0 ? "bg-zinc-700 text-zinc-500 cursor-not-allowed" : "bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-zinc-900 font-semibold"}`}
 				>
-					{isDownloading ? "Downloading..." : assetPath ? "Downloaded" : "Download"}
+					{isDownloading ? "Downloading..." : assetPath ? "Replace" : "Download"}
 				</button>
 				<button
 					onClick={() => assetPath && window.api.openInFinder(assetPath)}
@@ -169,15 +223,25 @@ export default function BeatEditor({ beat, assetPath, onReDownload, onSaveSearch
 					>
 						Add CTA
 					</button>
-				) : (
-					<button
-						onClick={() => onToggleOverlay?.(beat.id)}
-						className="px-2.5 py-1 rounded text-[10px] font-medium transition-colors bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/30"
-					>
-						Remove CTA
-					</button>
-				)}
-			</div>
+			) : (
+				<button
+					onClick={() => onToggleOverlay?.(beat.id)}
+					className="px-2.5 py-1 rounded text-[10px] font-medium transition-colors bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/30"
+				>
+					Remove CTA
+				</button>
+			)}
+			{derail?.derailed && onResetToSection && (
+				<button
+					onClick={() => onResetToSection(beat.id)}
+					disabled={isReDownloading || isActive}
+					title={`Reset search query to section context: ${derail.section?.searchContext ?? ""}`}
+					className={`px-2.5 py-1 rounded text-[10px] font-medium transition-colors border ${isReDownloading || isActive ? "bg-zinc-700 text-zinc-500 border-zinc-600 cursor-not-allowed" : "bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border-rose-500/30"}`}
+				>
+					Reset to Section
+				</button>
+			)}
+		</div>
 		</div>
 	);
 }

@@ -18,6 +18,17 @@
 - **Status**: Discussed, deferred for now
 - **Impact**: User must re-search candidates after reopening a project
 
+### App won't launch after asar rebuild (Session 21)
+- **Bug**: Manual `npx asar pack` packed wrong directory (either `src-electron/` or `out/` without `node_modules`). Electron silently crashed or showed `Cannot find module 'openai'`
+- **Root cause**: `externalizeDepsPlugin()` in `electron.vite.config.ts` keeps all node_modules as external `require()` calls — they MUST be in the asar. Only `update-app.sh` includes them via staging dir
+- **Fix**: Always use `update-app.sh` which copies `node_modules + out + src` into staging dir before packing
+- **Files**: `update-app.sh`, `out/package.json` (created for standalone builds)
+
+### Ken Burns ping-pong bounce (Session 21)
+- **Bug**: `smoothPingPong` went 0→1→0 — full return created visible bouncing/rocking
+- **Fix**: Changed to 0→1→0.85 — return only covers 15%, feels subtle not bouncy
+- **File**: `src/pipeline/ffmpeg-renderer.ts` line 120-124
+
 ### No git history
 - **Problem**: Project was accidentally deleted in session 10, no git repo existed
 - **Status**: FIXED in session 16 — git repo initialized, initial commit `f14b5f5`

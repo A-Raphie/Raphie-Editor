@@ -12,12 +12,22 @@ osascript -e 'quit app "Raphie'\''s Editor"' 2>/dev/null || true
 sleep 1
 
 echo "Packing asar..."
-npx asar pack . /tmp/raphies-editor-app.asar \
+# Create a staging dir with only the files the app needs (exclude dist, .git, etc.)
+STAGE="/tmp/raphies-editor-stage"
+rm -rf "$STAGE"
+mkdir -p "$STAGE"
+for item in node_modules out src src-electron package.json electron-builder.yml electron.vite.config.ts tsconfig.json; do
+  if [ -e "$item" ]; then
+    cp -r "$item" "$STAGE/"
+  fi
+done
+npx asar pack "$STAGE" /tmp/raphies-editor-app.asar \
   --unpack-dir "node_modules/@remotion" \
   --unpack-dir "node_modules/webpack" \
   --unpack-dir "node_modules/esbuild" \
   --unpack-dir "node_modules/@esbuild" \
   --unpack-dir "src/remotion"
+rm -rf "$STAGE"
 
 echo "Replacing app.asar..."
 cp /tmp/raphies-editor-app.asar "$RESOURCES/app.asar"
